@@ -1,34 +1,20 @@
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 
 namespace ScreenSelector;
 
-public partial class SelectionForm : Form
+internal partial class SelectionForm : Form
 {
     private const int SelectionBorderPadding = 3;
-    private const int SizeBadgeTopOffset = 27;
-    private const int SizeBadgeHeight = 24;
 
-    private AppSettings _settings = new();
-    private Bitmap? _screenshot;
-    private Bitmap? _dimmedScreenshot;
-    private Point _dragStart;
+    private SelectionSession? _session;
+    private Rectangle _screenBounds;
     private Rectangle _selection;
+    private Rectangle _regionHole;
     private bool _dragging;
-    private bool _actionOpened;
-    private readonly SolidBrush _sizeBackground = new(Color.FromArgb(225, 25, 29, 43));
-    private readonly SolidBrush _sizeTextBrush = new(Color.White);
-    private readonly Pen _lightDashes = new(Color.FromArgb(245, 248, 255), 1F)
+    private readonly Pen _selectionBorder = new(Color.White, 1F)
     {
-        DashStyle = DashStyle.Custom,
+        DashStyle = DashStyle.Dash,
         DashPattern = [5F, 4F],
-        DashCap = DashCap.Flat
-    };
-    private readonly Pen _darkDashes = new(Color.FromArgb(36, 39, 51), 1F)
-    {
-        DashStyle = DashStyle.Custom,
-        DashPattern = [5F, 4F],
-        DashOffset = 4.5F,
         DashCap = DashCap.Flat
     };
 
@@ -36,62 +22,25 @@ public partial class SelectionForm : Form
     {
         InitializeComponent();
 
-        // OptimizedDoubleBuffer copies the entire virtual desktop for every mouse
-        // move. Paint directly into the small invalid regions instead; the form is
-        // opaque, so suppressing background erase still keeps the drawing flicker-free.
+        // The overlay is just a solid translucent surface composed by DWM. It
+        // does not allocate or repaint a desktop-sized bitmap while dragging.
         DoubleBuffered = false;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque, true);
         SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
         UpdateStyles();
     }
 
-    public SelectionForm(AppSettings settings) : this()
+    internal SelectionForm(SelectionSession session, Screen screen, bool showInstruction) : this()
     {
-        _settings = settings;
-        Bounds = SystemInformation.VirtualScreen;
-        CaptureDesktop();
+        _session = session;
+        _screenBounds = screen.Bounds;
+        Bounds = screen.Bounds;
+        Opacity = 0.52D;
+        panelInstruction.Visible = showInstruction;
         PositionInstruction();
     }
 
-    private void CaptureDesktop()
-    {
-        var virtualScreen = SystemInformation.VirtualScreen;
-        var screenshot = new Bitmap(virtualScreen.Width, virtualScreen.Height, PixelFormat.Format32bppPArgb);
-        try
-        {
-            using (var graphics = Graphics.FromImage(screenshot))
-            {
-                graphics.CopyFromScreen(virtualScreen.Left, virtualScreen.Top, 0, 0, virtualScreen.Size,
-                    CopyPixelOperation.SourceCopy);
-            }
-
-            // The dark overlay never changes, so blend it once instead of blending
-            // millions of pixels again on every MouseMove.
-            var dimmedScreenshot = new Bitmap(virtualScreen.Width, virtualScreen.Height,
-                PixelFormat.Format32bppPArgb);
-            try
-            {
-                using var graphics = Graphics.FromImage(dimmedScreenshot);
-                graphics.CompositingQuality = CompositingQuality.HighSpeed;
-                graphics.DrawImageUnscaled(screenshot, Point.Empty);
-                using var shade = new SolidBrush(Color.FromArgb(135, 10, 12, 20));
-                graphics.FillRectangle(shade, new Rectangle(Point.Empty, virtualScreen.Size));
-            }
-            catch
-            {
-                dimmedScreenshot.Dispose();
-                throw;
-            }
-
-            _screenshot = screenshot;
-            _dimmedScreenshot = dimmedScreenshot;
-        }
-        catch
-        {
-            screenshot.Dispose();
-            throw;
-        }
-    }
+    internal Rectangle ScreenBounds => _screenBounds;
 
     private void PositionInstruction()
     {
@@ -101,166 +50,144 @@ public partial class SelectionForm : Form
 
     private void SelectionForm_Paint(object? sender, PaintEventArgs e)
     {
-        if (_screenshot == null || _dimmedScreenshot == null) return;
-
-        e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-        e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
-        e.Graphics.DrawImageUnscaled(_dimmedScreenshot, Point.Empty);
-
-        if (_selection.Width <= 0 || _selection.Height <= 0) return;
-
-        var graphicsState = e.Graphics.Save();
-        e.Graphics.SetClip(_selection, CombineMode.Intersect);
-        e.Graphics.DrawImageUnscaled(_screenshot, Point.Empty);
-        e.Graphics.Restore(graphicsState);
+        e.Graphics.FillRectangle(Brushes.Black, e.ClipRectangle);
+        if (!HasArea(_selection)) return;
 
         var border = _selection;
         border.Width = Math.Max(1, border.Width - 1);
         border.Height = Math.Max(1, border.Height - 1);
         e.Graphics.SmoothingMode = SmoothingMode.None;
-        e.Graphics.DrawRectangle(_darkDashes, border);
-        e.Graphics.DrawRectangle(_lightDashes, border);
+        e.Graphics.DrawRectangle(_selectionBorder, border);
+    }
 
-        if (!_dragging) return;
+    internal void ApplySelection(Rectangle previousScreenSelection, Rectangle currentScreenSelection)
+    {
+        var previous = TranslateToClient(previousScreenSelection);
+        var current = TranslateToClient(currentScreenSelection);
+        _selection = current;
 
-        var sizeText = $"{_selection.Width} × {_selection.Height}";
-        var badge = GetSizeBadgeBounds(_selection);
-        e.Graphics.FillRectangle(_sizeBackground, badge);
-        e.Graphics.DrawString(sizeText, Font, _sizeTextBrush, badge.Left + 8, badge.Top + 4);
+        UpdateWindowRegion(current);
+        InvalidateSelectionChange(previous, current);
+    }
+
+    internal void SetInstructionVisible(bool visible) => panelInstruction.Visible = visible;
+
+    private Rectangle TranslateToClient(Rectangle screenRectangle) => new(
+        screenRectangle.X - _screenBounds.X,
+        screenRectangle.Y - _screenBounds.Y,
+        screenRectangle.Width,
+        screenRectangle.Height);
+
+    private void UpdateWindowRegion(Rectangle selection)
+    {
+        var visibleSelection = Rectangle.Intersect(selection, ClientRectangle);
+        var hole = GetHoleRectangle(selection, visibleSelection);
+        if (hole == _regionHole) return;
+        _regionHole = hole;
+
+        if (!HasArea(hole))
+        {
+            NativeMethods.SetWindowRgn(Handle, IntPtr.Zero, false);
+            return;
+        }
+
+        var windowRegion = NativeMethods.CreateRectRgn(0, 0, ClientSize.Width, ClientSize.Height);
+        var holeRegion = NativeMethods.CreateRectRgn(hole.Left, hole.Top, hole.Right, hole.Bottom);
+        if (windowRegion == IntPtr.Zero || holeRegion == IntPtr.Zero)
+        {
+            if (windowRegion != IntPtr.Zero) NativeMethods.DeleteObject(windowRegion);
+            if (holeRegion != IntPtr.Zero) NativeMethods.DeleteObject(holeRegion);
+            return;
+        }
+
+        NativeMethods.CombineRgn(windowRegion, windowRegion, holeRegion, NativeMethods.RgnDiff);
+        NativeMethods.DeleteObject(holeRegion);
+
+        // On success Windows owns windowRegion. Redraw is intentionally disabled;
+        // only the thin changed strips are invalidated below.
+        if (NativeMethods.SetWindowRgn(Handle, windowRegion, false) == 0)
+            NativeMethods.DeleteObject(windowRegion);
+    }
+
+    private Rectangle GetHoleRectangle(Rectangle selection, Rectangle visibleSelection)
+    {
+        if (!HasArea(visibleSelection)) return Rectangle.Empty;
+
+        var hole = visibleSelection;
+
+        // Keep one pixel of the overlay only on the selection's real outer edges.
+        // Do not add a line at monitor seams when a selection spans displays.
+        if (selection.Left >= ClientRectangle.Left)
+        {
+            hole.X++;
+            hole.Width--;
+        }
+        if (selection.Top >= ClientRectangle.Top)
+        {
+            hole.Y++;
+            hole.Height--;
+        }
+        if (selection.Right <= ClientRectangle.Right) hole.Width--;
+        if (selection.Bottom <= ClientRectangle.Bottom) hole.Height--;
+
+        return HasArea(hole) ? hole : Rectangle.Empty;
     }
 
     private void SelectionForm_MouseDown(object? sender, MouseEventArgs e)
     {
-        if (e.Button != MouseButtons.Left || panelInstruction.Bounds.Contains(e.Location)) return;
+        if (e.Button != MouseButtons.Left || panelInstruction.Visible && panelInstruction.Bounds.Contains(e.Location))
+            return;
+
+        if (_session?.BeginSelection(this, PointToScreen(e.Location)) != true) return;
         _dragging = true;
-        _dragStart = e.Location;
-        _selection = Rectangle.Empty;
-        panelInstruction.Visible = false;
+        Capture = true;
     }
 
     private void SelectionForm_MouseMove(object? sender, MouseEventArgs e)
     {
-        if (!_dragging) return;
-        var nextSelection = NormalizeRectangle(_dragStart, e.Location);
-        if (nextSelection == _selection) return;
-
-        var previousSelection = _selection;
-        _selection = nextSelection;
-        InvalidateSelectionChange(previousSelection, nextSelection, includeSizeBadges: true);
+        if (_dragging) _session?.UpdateSelection(this, PointToScreen(e.Location));
     }
 
     private void SelectionForm_MouseUp(object? sender, MouseEventArgs e)
     {
         if (!_dragging) return;
-        var previousSelection = _selection;
+
+        var end = PointToScreen(e.Location);
         _dragging = false;
-        _selection = NormalizeRectangle(_dragStart, e.Location);
+        Capture = false;
+        _session?.CompleteSelection(this, end);
+    }
 
-        if (_selection.Width < 8 || _selection.Height < 4)
+    private void InvalidateSelectionChange(Rectangle previous, Rectangle current)
+    {
+        var previousVisible = Rectangle.Intersect(previous, ClientRectangle);
+        var currentVisible = Rectangle.Intersect(current, ClientRectangle);
+
+        // SetWindowRgn clips these rectangles to the solid overlay. During a
+        // normal expanding drag this leaves only a few border pixels to repaint;
+        // no managed Region or full-screen bitmap is created per mouse event.
+        if (HasArea(previousVisible))
         {
-            _selection = Rectangle.Empty;
-            panelInstruction.Visible = true;
-            InvalidateSelectionChange(previousSelection, Rectangle.Empty, includeSizeBadges: true);
-            return;
+            previousVisible.Inflate(SelectionBorderPadding, SelectionBorderPadding);
+            Invalidate(previousVisible);
         }
-
-        OpenActions(autoIdentifyMusic: false);
-    }
-
-    private static Rectangle NormalizeRectangle(Point start, Point end)
-    {
-        var left = Math.Min(start.X, end.X);
-        var top = Math.Min(start.Y, end.Y);
-        return new Rectangle(left, top, Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y));
-    }
-
-    private Rectangle GetSizeBadgeBounds(Rectangle selection)
-    {
-        var text = $"{selection.Width} × {selection.Height}";
-        var textSize = TextRenderer.MeasureText(text, Font, Size.Empty,
-            TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-        return new Rectangle(selection.Left, Math.Max(0, selection.Top - SizeBadgeTopOffset),
-            textSize.Width + 16, SizeBadgeHeight);
-    }
-
-    private void InvalidateSelectionChange(Rectangle previous, Rectangle current, bool includeSizeBadges)
-    {
-        using var dirtyRegion = new Region();
-        dirtyRegion.MakeEmpty();
-
-        // Only pixels whose selected/unselected state changed need their image
-        // restored. The old/new outlines and size badges are added separately.
-        if (!previous.IsEmpty) dirtyRegion.Union(previous);
-        if (!current.IsEmpty) dirtyRegion.Xor(current);
-        AddSelectionOutline(dirtyRegion, previous);
-        AddSelectionOutline(dirtyRegion, current);
-
-        if (includeSizeBadges)
+        if (HasArea(currentVisible))
         {
-            if (!previous.IsEmpty) dirtyRegion.Union(GetSizeBadgeBounds(previous));
-            if (!current.IsEmpty) dirtyRegion.Union(GetSizeBadgeBounds(current));
+            currentVisible.Inflate(SelectionBorderPadding, SelectionBorderPadding);
+            Invalidate(currentVisible);
         }
-
-        Invalidate(dirtyRegion);
     }
 
-    private static void AddSelectionOutline(Region dirtyRegion, Rectangle selection)
-    {
-        if (selection.IsEmpty) return;
+    private static bool HasArea(Rectangle rectangle) => rectangle.Width > 0 && rectangle.Height > 0;
 
-        var outer = selection;
-        outer.Inflate(SelectionBorderPadding, SelectionBorderPadding);
-        using var outline = new Region(outer);
+    private void DisposeDrawingResources() => _selectionBorder.Dispose();
 
-        var inner = selection;
-        inner.Inflate(-SelectionBorderPadding, -SelectionBorderPadding);
-        if (inner.Width > 0 && inner.Height > 0) outline.Exclude(inner);
-        dirtyRegion.Union(outline);
-    }
-
-    private void DisposeDrawingResources()
-    {
-        _dimmedScreenshot?.Dispose();
-        _lightDashes.Dispose();
-        _darkDashes.Dispose();
-        _sizeBackground.Dispose();
-        _sizeTextBrush.Dispose();
-    }
-
-    private void OpenActions(bool autoIdentifyMusic)
-    {
-        if (_actionOpened || _screenshot == null) return;
-        _actionOpened = true;
-
-        var area = autoIdentifyMusic
-            ? new Rectangle(Math.Max(0, ClientSize.Width / 2 - 1), Math.Max(0, ClientSize.Height / 2 - 1), 2, 2)
-            : _selection;
-        var captureArea = area;
-        if (!autoIdentifyMusic)
-        {
-            var horizontalInset = area.Width > 4 ? 2 : 1;
-            var verticalInset = area.Height > 4 ? 2 : 1;
-            captureArea = Rectangle.FromLTRB(area.Left + horizontalInset, area.Top + verticalInset,
-                area.Right - horizontalInset, area.Bottom - verticalInset);
-        }
-
-        var crop = new Bitmap(captureArea.Width, captureArea.Height);
-        using (var graphics = Graphics.FromImage(crop))
-            graphics.DrawImage(_screenshot, new Rectangle(Point.Empty, crop.Size), captureArea, GraphicsUnit.Pixel);
-
-        Hide();
-        using (crop)
-        using (var actions = new ActionToolbarForm(crop, _settings, RectangleToScreen(area), autoIdentifyMusic))
-            actions.ShowDialog();
-        Close();
-    }
-
-    private void btnIdentifyMusic_Click(object? sender, EventArgs e) => OpenActions(autoIdentifyMusic: true);
-    private void btnCancel_Click(object? sender, EventArgs e) => Close();
+    private void btnIdentifyMusic_Click(object? sender, EventArgs e) => _session?.OpenActions(autoIdentifyMusic: true);
+    private void btnCancel_Click(object? sender, EventArgs e) => _session?.Cancel();
 
     private void SelectionForm_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Escape) Close();
+        if (e.KeyCode == Keys.Escape) _session?.Cancel();
     }
 
     private void SelectionForm_Resize(object? sender, EventArgs e) => PositionInstruction();

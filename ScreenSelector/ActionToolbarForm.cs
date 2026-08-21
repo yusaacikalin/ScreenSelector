@@ -17,7 +17,8 @@ public partial class ActionToolbarForm : Form
         ModernWindowBehavior.EnableDragging(this, panelToolbar);
     }
 
-    public ActionToolbarForm(Bitmap capture, AppSettings settings, Rectangle selectedScreenArea, bool autoIdentifyMusic)
+    public ActionToolbarForm(Bitmap capture, AppSettings settings, Rectangle selectedScreenArea, bool autoIdentifyMusic,
+        Point? selectionEnd = null)
         : this()
     {
         _capture.Dispose();
@@ -25,7 +26,10 @@ public partial class ActionToolbarForm : Form
         _settings = settings;
         _autoIdentifyMusic = autoIdentifyMusic;
         CollapseToast();
-        PositionNearSelection(selectedScreenArea);
+        if (selectionEnd.HasValue)
+            Location = new Point(selectionEnd.Value.X - Width / 2, selectionEnd.Value.Y);
+        else
+            PositionNearSelection(selectedScreenArea);
     }
 
     private void PositionNearSelection(Rectangle selectedArea)

@@ -11,6 +11,7 @@ namespace ScreenSelector
         private bool _loadingSettings;
         private bool _capturingShortcut;
         private bool _selectionOpen;
+        private SelectionSession? _selectionSession;
         private bool _allowExit;
         private bool _settingsLoaded;
 
@@ -268,18 +269,29 @@ namespace ScreenSelector
             MinimizeToTray();
             try
             {
-                using var selectionForm = new SelectionForm(_settings);
-                selectionForm.ShowDialog();
+                var selectionSession = new SelectionSession(_settings);
+                _selectionSession = selectionSession;
+                selectionSession.Closed += SelectionSession_Closed;
+                selectionSession.Show();
             }
             catch (Exception ex)
             {
+                _selectionSession?.Dispose();
+                _selectionSession = null;
+                _selectionOpen = false;
                 MessageBox.Show($"Alan seçme ekranı açılamadı.\n\n{ex.Message}", "ScreenSelector",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            finally
-            {
-                _selectionOpen = false;
-            }
+        }
+
+        private void SelectionSession_Closed(object? sender, EventArgs e)
+        {
+            if (sender is not SelectionSession selectionSession || selectionSession != _selectionSession) return;
+
+            selectionSession.Closed -= SelectionSession_Closed;
+            selectionSession.Dispose();
+            _selectionSession = null;
+            _selectionOpen = false;
         }
 
         private void ShowMainWindow()
@@ -455,6 +467,8 @@ namespace ScreenSelector
                 return;
             }
             NativeMethods.UnregisterHotKey(Handle, HotkeyId);
+            _selectionSession?.Dispose();
+            _selectionSession = null;
             notifyIcon.Visible = false;
         }
 

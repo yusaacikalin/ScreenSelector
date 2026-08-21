@@ -9,7 +9,6 @@ namespace ScreenSelector
             if (disposing && components != null) components.Dispose();
             if (disposing)
             {
-                _screenshot?.Dispose();
                 DisposeDrawingResources();
             }
             base.Dispose(disposing);
