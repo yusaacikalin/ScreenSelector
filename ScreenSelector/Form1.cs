@@ -37,6 +37,7 @@ namespace ScreenSelector
             _applicationIcon = LoadApplicationIcon();
             Icon = _applicationIcon;
             notifyIcon.Icon = _applicationIcon;
+            Text = "Screen Selector";
             ModernWindowBehavior.EnableDragging(this, panelHeader);
             ApplyInterfaceLayout();
             toolTip.SetToolTip(btnSelectNow, "Atanmış kısayol ile aynı seçim ekranını açar.");
