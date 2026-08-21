@@ -16,12 +16,13 @@ public enum HotkeyModifiers : uint
 
 public sealed class AppSettings
 {
+    public int SettingsSchema { get; set; } = 2;
     public Keys HotkeyKey { get; set; } = Keys.Space;
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; } = true;
-    public string SourceLanguage { get; set; } = "tr";
-    public string TargetLanguage { get; set; } = "en";
+    public string SourceLanguage { get; set; } = "auto";
+    public string TargetLanguage { get; set; } = "tr";
     public string AudDToken { get; set; } = string.Empty;
 
     [JsonIgnore]
@@ -38,7 +39,18 @@ public sealed class AppSettings
             if (!File.Exists(SettingsPath))
                 return new AppSettings();
 
-            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new AppSettings();
+            var json = File.ReadAllText(SettingsPath);
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(nameof(SettingsSchema), out _))
+            {
+                settings.SettingsSchema = 2;
+                settings.SourceLanguage = "auto";
+                settings.TargetLanguage = "tr";
+                settings.Save();
+            }
+
+            return settings;
         }
         catch
         {

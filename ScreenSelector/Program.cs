@@ -11,8 +11,6 @@ namespace ScreenSelector
             using var singleInstance = new Mutex(true, "ScreenSelector.SingleInstance", out var isFirstInstance);
             if (!isFirstInstance)
             {
-                MessageBox.Show("ScreenSelector zaten çalışıyor.", "ScreenSelector",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
