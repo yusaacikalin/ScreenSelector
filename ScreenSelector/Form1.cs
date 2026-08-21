@@ -13,7 +13,6 @@ namespace ScreenSelector
         private bool _selectionOpen;
         private bool _allowExit;
         private bool _settingsLoaded;
-        private bool _isInTrayMode;
 
         private static readonly LanguageOption[] Languages =
         {
@@ -218,7 +217,7 @@ namespace ScreenSelector
             RegisterCurrentHotkey(showError: true);
             if (_launchMinimized)
             {
-                BeginInvoke(() => MinimizeToTray(showBalloon: false));
+                BeginInvoke(MinimizeToTray);
             }
         }
 
@@ -264,7 +263,7 @@ namespace ScreenSelector
             _selectionOpen = true;
             // Starting a capture also enters tray mode. Completing or cancelling
             // the selection must never bring the main window to the foreground.
-            MinimizeToTray(showBalloon: false);
+            MinimizeToTray();
             try
             {
                 using var selectionForm = new SelectionForm(_settings);
@@ -283,7 +282,6 @@ namespace ScreenSelector
 
         private void ShowMainWindow()
         {
-            _isInTrayMode = false;
             Show();
             WindowState = FormWindowState.Normal;
             Activate();
@@ -433,20 +431,12 @@ namespace ScreenSelector
         private void notifyIcon_DoubleClick(object? sender, EventArgs e) => ShowMainWindow();
         private void menuOpen_Click(object? sender, EventArgs e) => ShowMainWindow();
 
-        private void MinimizeToTray(bool showBalloon = true)
+        private void MinimizeToTray()
         {
-            var wasAlreadyInTray = _isInTrayMode;
-            _isInTrayMode = true;
             Hide();
             // Hide() already removes the window from the taskbar. Keeping
             // ShowInTaskbar unchanged prevents handle recreation, which would
             // invalidate the global hotkey registration.
-            if (showBalloon && !wasAlreadyInTray)
-            {
-                notifyIcon.ShowBalloonTip(1500, "ScreenSelector hazır",
-                    $"{FormatShortcut(_settings.HotkeyModifiers, _settings.HotkeyKey)} ile alan seçebilirsiniz.",
-                    ToolTipIcon.Info);
-            }
         }
 
         private void Form1_Resize(object? sender, EventArgs e)
