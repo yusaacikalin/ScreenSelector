@@ -5,7 +5,7 @@ namespace ScreenSelector;
 
 internal static class TesseractOcrService
 {
-    public static Task<IReadOnlyList<string>> RecognizeCandidatesAsync(IReadOnlyList<Bitmap> candidates,
+    public static Task<IReadOnlyList<string>> RecognizeCandidatesAsync(IReadOnlyList<OcrImageCandidate> candidates,
         string languageTag)
     {
         return Task.Run<IReadOnlyList<string>>(() =>
@@ -24,25 +24,47 @@ internal static class TesseractOcrService
             foreach (var candidate in candidates)
             {
                 using var memory = new MemoryStream();
-                candidate.Save(memory, System.Drawing.Imaging.ImageFormat.Png);
+                candidate.Image.Save(memory, System.Drawing.Imaging.ImageFormat.Png);
                 using var pix = Pix.LoadFromMemory(memory.ToArray());
-                AddResult(engine, pix, PageSegMode.SingleBlock, results);
+                AddResult(engine, pix, PageSegMode.SingleBlock, candidate.ContentBounds, results);
 
-                if (candidate.Width >= candidate.Height * 4)
-                    AddResult(engine, pix, PageSegMode.SingleLine, results);
+                if (candidate.Image.Width >= candidate.Image.Height * 4)
+                    AddResult(engine, pix, PageSegMode.SingleLine, candidate.ContentBounds, results);
                 else
-                    AddResult(engine, pix, PageSegMode.SparseText, results);
+                    AddResult(engine, pix, PageSegMode.SparseText, candidate.ContentBounds, results);
             }
 
             return results;
         });
     }
 
-    private static void AddResult(TesseractEngine engine, Pix pix, PageSegMode mode, ICollection<string> results)
+    private static void AddResult(TesseractEngine engine, Pix pix, PageSegMode mode, Rectangle contentBounds,
+        ICollection<string> results)
     {
         using var page = engine.Process(pix, mode);
-        var text = page.GetText()?.Trim();
-        if (!string.IsNullOrWhiteSpace(text)) results.Add(text);
+        using var iterator = page.GetIterator();
+        iterator.Begin();
+        var completeLines = new List<string>();
+        do
+        {
+            if (!iterator.TryGetBoundingBox(PageIteratorLevel.TextLine, out var bounds) ||
+                TouchesSelectionEdge(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, contentBounds) ||
+                iterator.GetConfidence(PageIteratorLevel.TextLine) < 72F)
+                continue;
+
+            var line = iterator.GetText(PageIteratorLevel.TextLine)?.Trim();
+            if (!string.IsNullOrWhiteSpace(line)) completeLines.Add(line);
+        } while (iterator.Next(PageIteratorLevel.TextLine));
+
+        if (completeLines.Count > 0) results.Add(string.Join(Environment.NewLine, completeLines));
+    }
+
+    private static bool TouchesSelectionEdge(double left, double top, double right, double bottom,
+        Rectangle contentBounds)
+    {
+        const int tolerance = 2;
+        return left <= contentBounds.Left + tolerance || top <= contentBounds.Top + tolerance ||
+               right >= contentBounds.Right - tolerance || bottom >= contentBounds.Bottom - tolerance;
     }
 
     private static string GetLanguage(string languageTag, string tessdataPath)

@@ -14,6 +14,7 @@ public partial class ActionToolbarForm : Form
     public ActionToolbarForm()
     {
         InitializeComponent();
+        ModernWindowBehavior.EnableDragging(this, panelToolbar);
     }
 
     public ActionToolbarForm(Bitmap capture, AppSettings settings, Rectangle selectedScreenArea, bool autoIdentifyMusic)

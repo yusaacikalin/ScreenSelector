@@ -801,6 +801,7 @@ namespace ScreenSelector
             Controls.Add(panelMain);
             Controls.Add(panelSidebar);
             Font = new Font("Segoe UI", 9F);
+            FormBorderStyle = FormBorderStyle.None;
             KeyPreview = true;
             MinimumSize = new Size(1000, 720);
             Name = "Form1";
@@ -830,97 +831,6 @@ namespace ScreenSelector
             panelHeader.PerformLayout();
             trayMenu.ResumeLayout(false);
             ResumeLayout(false);
-        }
-
-        private static void ConfigureNavButton(Button button, string text, int top, Color foreColor, Color backColor)
-        {
-            button.BackColor = backColor;
-            button.Cursor = Cursors.Hand;
-            button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(48, 54, 76);
-            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(35, 41, 61);
-            button.FlatStyle = FlatStyle.Flat;
-            button.Font = new Font("Segoe UI Semibold", 10F);
-            button.ForeColor = foreColor;
-            button.Location = new Point(18, top);
-            button.Padding = new Padding(9, 0, 0, 0);
-            button.Size = new Size(190, 44);
-            button.Text = text;
-            button.TextAlign = ContentAlignment.MiddleLeft;
-            button.UseVisualStyleBackColor = false;
-        }
-
-        private static void StyleCardTitle(Label label, string text, int left, int top)
-        {
-            label.AutoSize = true;
-            label.Font = new Font("Segoe UI Semibold", 14F, FontStyle.Bold);
-            label.ForeColor = Color.FromArgb(29, 35, 54);
-            label.Location = new Point(left, top);
-            label.Text = text;
-        }
-
-        private static void StyleDescription(Label label, string text, int left, int top)
-        {
-            label.AutoSize = true;
-            label.Font = new Font("Segoe UI", 9.5F);
-            label.ForeColor = Color.FromArgb(94, 103, 124);
-            label.Location = new Point(left, top);
-            label.Text = text;
-        }
-
-        private static void StyleFieldLabel(Label label, string text, int left, int top)
-        {
-            label.AutoSize = true;
-            label.Font = new Font("Segoe UI Semibold", 9F);
-            label.ForeColor = Color.FromArgb(75, 84, 106);
-            label.Location = new Point(left, top);
-            label.Text = text;
-        }
-
-        private static void ConfigureFeature(Panel panel, Label icon, Label title, Label description,
-            int left, string iconText, string titleText, string descriptionText, Color accent)
-        {
-            panel.BackColor = Color.FromArgb(246, 248, 252);
-            panel.Controls.Add(description);
-            panel.Controls.Add(title);
-            panel.Controls.Add(icon);
-            panel.Location = new Point(left, 86);
-            panel.Size = new Size(199, 112);
-            icon.AutoSize = true;
-            icon.Font = new Font("Segoe UI", 17F, FontStyle.Bold);
-            icon.ForeColor = accent;
-            icon.Location = new Point(14, 17);
-            icon.Text = iconText;
-            title.AutoSize = true;
-            title.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
-            title.ForeColor = Color.FromArgb(35, 42, 62);
-            title.Location = new Point(52, 27);
-            title.Text = titleText;
-            description.Font = new Font("Segoe UI", 8.5F);
-            description.ForeColor = Color.FromArgb(101, 111, 133);
-            description.Location = new Point(16, 68);
-            description.Size = new Size(169, 34);
-            description.Text = descriptionText;
-        }
-
-        private void ConfigureLanguageCombo(ComboBox combo, int left)
-        {
-            combo.DropDownStyle = ComboBoxStyle.DropDownList;
-            combo.Font = new Font("Segoe UI", 10F);
-            combo.Location = new Point(left, 110);
-            combo.Size = new Size(267, 25);
-            combo.SelectedIndexChanged += language_SelectedIndexChanged;
-        }
-
-        private void ConfigureCheck(CheckBox check, string text, int left)
-        {
-            check.AutoSize = true;
-            check.Font = new Font("Segoe UI", 9.5F);
-            check.ForeColor = Color.FromArgb(56, 64, 84);
-            check.Location = new Point(left, 102);
-            check.Text = text;
-            check.UseVisualStyleBackColor = true;
-            check.CheckedChanged += startup_CheckedChanged;
         }
 
         #endregion

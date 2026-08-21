@@ -70,10 +70,10 @@ internal static class OcrService
             "Windows OCR motoru kullanılamıyor. Windows Ayarları > Dil ve bölge bölümünden ilgili dilin OCR bileşenini yükleyin.");
     }
 
-    private static async Task<string> RecognizeSingleAsync(Bitmap bitmap, OcrEngine engine)
+    private static async Task<string> RecognizeSingleAsync(OcrImageCandidate candidate, OcrEngine engine)
     {
         using var memory = new MemoryStream();
-        bitmap.Save(memory, ImageFormat.Png);
+        candidate.Image.Save(memory, ImageFormat.Png);
         using var randomAccessStream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(randomAccessStream))
         {
@@ -99,7 +99,29 @@ internal static class OcrService
             BitmapAlphaMode.Premultiplied, transform, ExifOrientationMode.IgnoreExifOrientation,
             ColorManagementMode.DoNotColorManage);
         var result = await engine.RecognizeAsync(softwareBitmap);
-        return string.Join(Environment.NewLine, result.Lines.Select(line => line.Text)).Trim();
+        var scaledContentBounds = new RectangleF((float)(candidate.ContentBounds.X * scale),
+            (float)(candidate.ContentBounds.Y * scale), (float)(candidate.ContentBounds.Width * scale),
+            (float)(candidate.ContentBounds.Height * scale));
+        var completeLines = new List<string>();
+        foreach (var line in result.Lines)
+        {
+            if (line.Words.Count == 0) continue;
+            var left = line.Words.Min(word => word.BoundingRect.X);
+            var top = line.Words.Min(word => word.BoundingRect.Y);
+            var right = line.Words.Max(word => word.BoundingRect.X + word.BoundingRect.Width);
+            var bottom = line.Words.Max(word => word.BoundingRect.Y + word.BoundingRect.Height);
+            if (TouchesSelectionEdge(left, top, right, bottom, scaledContentBounds)) continue;
+            completeLines.Add(line.Text);
+        }
+        return string.Join(Environment.NewLine, completeLines).Trim();
+    }
+
+    private static bool TouchesSelectionEdge(double left, double top, double right, double bottom,
+        RectangleF contentBounds)
+    {
+        const int tolerance = 2;
+        return left <= contentBounds.Left + tolerance || top <= contentBounds.Top + tolerance ||
+               right >= contentBounds.Right - tolerance || bottom >= contentBounds.Bottom - tolerance;
     }
 
     private static double ScoreResult(string text)

@@ -21,6 +21,7 @@ public partial class ResultForm : Form
     public ResultForm()
     {
         InitializeComponent();
+        ModernWindowBehavior.EnableDragging(this, panelHeader);
     }
 
     public ResultForm(Bitmap capture, ResultData data) : this()

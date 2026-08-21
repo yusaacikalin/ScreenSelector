@@ -4,12 +4,19 @@ using System.Runtime.InteropServices;
 
 namespace ScreenSelector;
 
+internal sealed class OcrImageCandidate(Bitmap image, Rectangle contentBounds) : IDisposable
+{
+    public Bitmap Image { get; } = image;
+    public Rectangle ContentBounds { get; } = contentBounds;
+    public void Dispose() => Image.Dispose();
+}
+
 internal static class OcrImagePreprocessor
 {
     private const int Padding = 24;
     private const int PreferredMaximumSide = 2400;
 
-    public static IReadOnlyList<Bitmap> CreateCandidates(Bitmap source)
+    public static IReadOnlyList<OcrImageCandidate> CreateCandidates(Bitmap source)
     {
         var scale = ChooseScale(source.Size);
         var scaledWidth = Math.Max(1, (int)Math.Round(source.Width * scale));
@@ -33,7 +40,13 @@ internal static class OcrImagePreprocessor
 
         var normalized = CreateNormalizedGrayscale(original, darkBackground, binary: false);
         var binary = CreateNormalizedGrayscale(original, darkBackground, binary: true);
-        return new[] { normalized, binary, original };
+        var contentBounds = new Rectangle(Padding, Padding, scaledWidth, scaledHeight);
+        return new[]
+        {
+            new OcrImageCandidate(normalized, contentBounds),
+            new OcrImageCandidate(binary, contentBounds),
+            new OcrImageCandidate(original, contentBounds)
+        };
     }
 
     private static float ChooseScale(Size size)

@@ -118,7 +118,7 @@ namespace ScreenSelector
             ClientSize = new Size(650, 680);
             Controls.Add(panelContent);
             Controls.Add(panelHeader);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
+            FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
             MinimizeBox = false;
             Name = "ResultForm";

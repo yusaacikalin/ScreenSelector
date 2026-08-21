@@ -6,6 +6,7 @@ namespace ScreenSelector
     {
         private const int HotkeyId = 0x5343;
         private readonly bool _launchMinimized;
+        private readonly Icon _applicationIcon;
         private AppSettings _settings = new();
         private bool _loadingSettings;
         private bool _capturingShortcut;
@@ -33,9 +34,167 @@ namespace ScreenSelector
         {
             _launchMinimized = launchMinimized;
             InitializeComponent();
-            notifyIcon.Icon = SystemIcons.Application;
+            _applicationIcon = LoadApplicationIcon();
+            Icon = _applicationIcon;
+            notifyIcon.Icon = _applicationIcon;
+            ModernWindowBehavior.EnableDragging(this, panelHeader);
+            ApplyInterfaceLayout();
             toolTip.SetToolTip(btnSelectNow, "Atanmış kısayol ile aynı seçim ekranını açar.");
             toolTip.SetToolTip(btnSwapLanguages, "Kaynak ve hedef dili değiştir");
+        }
+
+        private static Icon LoadApplicationIcon()
+        {
+            try
+            {
+                return Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+                    ?? (Icon)SystemIcons.Application.Clone();
+            }
+            catch
+            {
+                return (Icon)SystemIcons.Application.Clone();
+            }
+        }
+
+        private void ApplyInterfaceLayout()
+        {
+            var sidebarText = Color.FromArgb(174, 181, 201);
+            var sidebarBackground = Color.FromArgb(20, 24, 38);
+
+            ConfigureNavButton(btnNavHome, "⌂  Genel bakış", 126, Color.White, Color.FromArgb(45, 51, 77));
+            ConfigureNavButton(btnNavSettings, "⚙  Ayarlar", 178, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavTranslation, "文  Çeviri", 230, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavMusic, "♫  Şarkı tanıma", 282, sidebarText, sidebarBackground);
+
+            StyleCardTitle(lblHotkeyTitle, "Seçim kısayolu", 28, 20);
+            StyleFieldLabel(lblShortcutLabel, "Etkin kısayol", 345, 65);
+
+            StyleCardTitle(lblFeaturesTitle, "Tek seçim, üç işlem", 28, 20);
+            StyleDescription(lblFeaturesDescription,
+                "Seçtiğiniz alanı ihtiyacınıza göre anında işleyin.", 28, 53);
+            ConfigureFeature(featureText, lblFeatureTextIcon, lblFeatureTextTitle,
+                lblFeatureTextDescription, 28, "T", "Metni çıkar",
+                "Ekrandaki yazıyı seçip panoya kopyalayın.", Color.FromArgb(91, 76, 230));
+            ConfigureFeature(featureTranslate, lblFeatureTranslateIcon, lblFeatureTranslateTitle,
+                lblFeatureTranslateDescription, 241, "文", "Çevir",
+                "Seçili metni tercih ettiğiniz dile çevirin.", Color.FromArgb(31, 154, 132));
+            ConfigureFeature(featureMusic, lblFeatureMusicIcon, lblFeatureMusicTitle,
+                lblFeatureMusicDescription, 454, "♫", "Şarkıyı bul",
+                "Bilgisayarınızda çalan parçayı tanıyın.", Color.FromArgb(232, 117, 64));
+
+            StyleCardTitle(lblTranslationTitle, "Çeviri ayarları", 28, 20);
+            StyleDescription(lblTranslationDescription,
+                "Metin çevirilerinde kullanılacak dilleri belirleyin.", 28, 53);
+            StyleFieldLabel(lblSourceLanguage, "Kaynak dil", 28, 87);
+            StyleFieldLabel(lblTargetLanguage, "Hedef dil", 387, 87);
+            ConfigureLanguageCombo(cmbSourceLanguage, 28);
+            ConfigureLanguageCombo(cmbTargetLanguage, 387);
+
+            StyleCardTitle(lblStartupTitle, "Başlangıç davranışı", 28, 20);
+            StyleDescription(lblStartupDescription,
+                "ScreenSelector'ın Windows ile nasıl başlayacağını seçin.", 28, 53);
+            ConfigureCheck(chkStartWithWindows, "Windows ile başlat", 28);
+            ConfigureCheck(chkStartMinimized, "Bildirim alanında başlat", 340);
+
+            StyleCardTitle(lblMusicTitle, "Şarkı tanıma", 28, 20);
+            StyleDescription(lblMusicDescription,
+                "AudD erişim anahtarınızı girerek bilgisayarınızda çalan parçayı bulun.", 28, 53);
+            StyleFieldLabel(lblToken, "AudD API anahtarı", 28, 91);
+        }
+
+        private static void ConfigureNavButton(Button button, string text, int top, Color foreColor, Color backColor)
+        {
+            button.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            button.BackColor = backColor;
+            button.Cursor = Cursors.Hand;
+            button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(48, 54, 76);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(35, 41, 61);
+            button.FlatStyle = FlatStyle.Flat;
+            button.Font = new Font("Segoe UI Semibold", 10F);
+            button.ForeColor = foreColor;
+            button.Location = new Point(18, top);
+            button.Padding = new Padding(9, 0, 0, 0);
+            button.Size = new Size(190, 44);
+            button.Text = text;
+            button.TextAlign = ContentAlignment.MiddleLeft;
+            button.UseVisualStyleBackColor = false;
+        }
+
+        private static void StyleCardTitle(Label label, string text, int left, int top)
+        {
+            label.AutoSize = true;
+            label.Font = new Font("Segoe UI Semibold", 14F, FontStyle.Bold);
+            label.ForeColor = Color.FromArgb(29, 35, 54);
+            label.Location = new Point(left, top);
+            label.Text = text;
+        }
+
+        private static void StyleDescription(Label label, string text, int left, int top)
+        {
+            label.AutoSize = true;
+            label.Font = new Font("Segoe UI", 9.5F);
+            label.ForeColor = Color.FromArgb(94, 103, 124);
+            label.Location = new Point(left, top);
+            label.Text = text;
+        }
+
+        private static void StyleFieldLabel(Label label, string text, int left, int top)
+        {
+            label.AutoSize = true;
+            label.Font = new Font("Segoe UI Semibold", 9F);
+            label.ForeColor = Color.FromArgb(75, 84, 106);
+            label.Location = new Point(left, top);
+            label.Text = text;
+        }
+
+        private static void ConfigureFeature(Panel panel, Label icon, Label title, Label description,
+            int left, string iconText, string titleText, string descriptionText, Color accent)
+        {
+            panel.BackColor = Color.FromArgb(246, 248, 252);
+            panel.Controls.Add(description);
+            panel.Controls.Add(title);
+            panel.Controls.Add(icon);
+            panel.Location = new Point(left, 86);
+            panel.Size = new Size(199, 112);
+
+            icon.AutoSize = true;
+            icon.Font = new Font("Segoe UI", 17F, FontStyle.Bold);
+            icon.ForeColor = accent;
+            icon.Location = new Point(14, 17);
+            icon.Text = iconText;
+
+            title.AutoSize = true;
+            title.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
+            title.ForeColor = Color.FromArgb(35, 42, 62);
+            title.Location = new Point(52, 27);
+            title.Text = titleText;
+
+            description.Font = new Font("Segoe UI", 8.5F);
+            description.ForeColor = Color.FromArgb(101, 111, 133);
+            description.Location = new Point(16, 68);
+            description.Size = new Size(169, 34);
+            description.Text = descriptionText;
+        }
+
+        private void ConfigureLanguageCombo(ComboBox combo, int left)
+        {
+            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            combo.Font = new Font("Segoe UI", 10F);
+            combo.Location = new Point(left, 110);
+            combo.Size = new Size(267, 25);
+            combo.SelectedIndexChanged += language_SelectedIndexChanged;
+        }
+
+        private void ConfigureCheck(CheckBox check, string text, int left)
+        {
+            check.AutoSize = true;
+            check.Font = new Font("Segoe UI", 9.5F);
+            check.ForeColor = Color.FromArgb(56, 64, 84);
+            check.Location = new Point(left, 102);
+            check.Text = text;
+            check.UseVisualStyleBackColor = true;
+            check.CheckedChanged += startup_CheckedChanged;
         }
 
         private void Form1_Load(object? sender, EventArgs e)
@@ -306,6 +465,12 @@ namespace ScreenSelector
             }
             NativeMethods.UnregisterHotKey(Handle, HotkeyId);
             notifyIcon.Visible = false;
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            _applicationIcon.Dispose();
         }
     }
 

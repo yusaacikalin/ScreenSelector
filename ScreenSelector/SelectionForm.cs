@@ -138,8 +138,10 @@ public partial class SelectionForm : Form
         var captureArea = area;
         if (!autoIdentifyMusic)
         {
-            captureArea.Inflate(8, 6);
-            captureArea.Intersect(ClientRectangle);
+            var horizontalInset = area.Width > 4 ? 2 : 1;
+            var verticalInset = area.Height > 4 ? 2 : 1;
+            captureArea = Rectangle.FromLTRB(area.Left + horizontalInset, area.Top + verticalInset,
+                area.Right - horizontalInset, area.Bottom - verticalInset);
         }
 
         var crop = new Bitmap(captureArea.Width, captureArea.Height);
