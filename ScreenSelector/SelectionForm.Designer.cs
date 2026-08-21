@@ -7,7 +7,11 @@ namespace ScreenSelector
         protected override void Dispose(bool disposing)
         {
             if (disposing && components != null) components.Dispose();
-            if (disposing) _screenshot?.Dispose();
+            if (disposing)
+            {
+                _screenshot?.Dispose();
+                DisposeDrawingResources();
+            }
             base.Dispose(disposing);
         }
 

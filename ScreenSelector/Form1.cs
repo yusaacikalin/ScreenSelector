@@ -41,6 +41,8 @@ namespace ScreenSelector
             ApplyInterfaceLayout();
             toolTip.SetToolTip(btnSelectNow, "Atanmış kısayol ile aynı seçim ekranını açar.");
             toolTip.SetToolTip(btnSwapLanguages, "Kaynak ve hedef dili değiştir");
+            toolTip.SetToolTip(btnHeaderWindowMinimize, "Görev çubuğuna küçült");
+            toolTip.SetToolTip(btnHeaderClose, "Uygulamayı kapat");
         }
 
         private static Icon LoadApplicationIcon()
@@ -428,6 +430,9 @@ namespace ScreenSelector
         private void btnSelectNow_Click(object? sender, EventArgs e) => BeginInvoke(StartSelection);
         private void menuSelect_Click(object? sender, EventArgs e) => BeginInvoke(StartSelection);
         private void btnHeaderMinimize_Click(object? sender, EventArgs e) => MinimizeToTray();
+        private void btnHeaderWindowMinimize_Click(object? sender, EventArgs e) =>
+            WindowState = FormWindowState.Minimized;
+        private void btnHeaderClose_Click(object? sender, EventArgs e) { _allowExit = true; Close(); }
         private void notifyIcon_DoubleClick(object? sender, EventArgs e) => ShowMainWindow();
         private void menuOpen_Click(object? sender, EventArgs e) => ShowMainWindow();
 
@@ -437,11 +442,6 @@ namespace ScreenSelector
             // Hide() already removes the window from the taskbar. Keeping
             // ShowInTaskbar unchanged prevents handle recreation, which would
             // invalidate the global hotkey registration.
-        }
-
-        private void Form1_Resize(object? sender, EventArgs e)
-        {
-            if (WindowState == FormWindowState.Minimized) MinimizeToTray();
         }
 
         private void menuExit_Click(object? sender, EventArgs e) { _allowExit = true; Close(); }

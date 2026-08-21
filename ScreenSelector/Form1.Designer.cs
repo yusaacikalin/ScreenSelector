@@ -68,6 +68,8 @@ namespace ScreenSelector
             lblMusicTitle = new Label();
             lblFooter = new Label();
             panelHeader = new Panel();
+            btnHeaderClose = new Button();
+            btnHeaderWindowMinimize = new Button();
             btnHeaderMinimize = new Button();
             lblHeaderHint = new Label();
             lblHeaderTitle = new Label();
@@ -642,6 +644,8 @@ namespace ScreenSelector
             // panelHeader
             // 
             panelHeader.BackColor = Color.White;
+            panelHeader.Controls.Add(btnHeaderClose);
+            panelHeader.Controls.Add(btnHeaderWindowMinimize);
             panelHeader.Controls.Add(btnHeaderMinimize);
             panelHeader.Controls.Add(lblHeaderHint);
             panelHeader.Controls.Add(lblHeaderTitle);
@@ -650,6 +654,40 @@ namespace ScreenSelector
             panelHeader.Name = "panelHeader";
             panelHeader.Size = new Size(758, 91);
             panelHeader.TabIndex = 1;
+            //
+            // btnHeaderClose
+            //
+            btnHeaderClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnHeaderClose.BackColor = Color.FromArgb(246, 247, 251);
+            btnHeaderClose.Cursor = Cursors.Hand;
+            btnHeaderClose.FlatAppearance.BorderSize = 0;
+            btnHeaderClose.FlatStyle = FlatStyle.Flat;
+            btnHeaderClose.Font = new Font("Segoe UI Semibold", 11F);
+            btnHeaderClose.ForeColor = Color.FromArgb(69, 78, 99);
+            btnHeaderClose.Location = new Point(693, 29);
+            btnHeaderClose.Name = "btnHeaderClose";
+            btnHeaderClose.Size = new Size(36, 34);
+            btnHeaderClose.TabIndex = 2;
+            btnHeaderClose.Text = "×";
+            btnHeaderClose.UseVisualStyleBackColor = false;
+            btnHeaderClose.Click += btnHeaderClose_Click;
+            //
+            // btnHeaderWindowMinimize
+            //
+            btnHeaderWindowMinimize.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnHeaderWindowMinimize.BackColor = Color.FromArgb(246, 247, 251);
+            btnHeaderWindowMinimize.Cursor = Cursors.Hand;
+            btnHeaderWindowMinimize.FlatAppearance.BorderSize = 0;
+            btnHeaderWindowMinimize.FlatStyle = FlatStyle.Flat;
+            btnHeaderWindowMinimize.Font = new Font("Segoe UI Semibold", 11F);
+            btnHeaderWindowMinimize.ForeColor = Color.FromArgb(69, 78, 99);
+            btnHeaderWindowMinimize.Location = new Point(651, 29);
+            btnHeaderWindowMinimize.Name = "btnHeaderWindowMinimize";
+            btnHeaderWindowMinimize.Size = new Size(36, 34);
+            btnHeaderWindowMinimize.TabIndex = 1;
+            btnHeaderWindowMinimize.Text = "−";
+            btnHeaderWindowMinimize.UseVisualStyleBackColor = false;
+            btnHeaderWindowMinimize.Click += btnHeaderWindowMinimize_Click;
             // 
             // btnHeaderMinimize
             // 
@@ -660,7 +698,7 @@ namespace ScreenSelector
             btnHeaderMinimize.FlatStyle = FlatStyle.Flat;
             btnHeaderMinimize.Font = new Font("Segoe UI Semibold", 9F);
             btnHeaderMinimize.ForeColor = Color.FromArgb(69, 78, 99);
-            btnHeaderMinimize.Location = new Point(604, 29);
+            btnHeaderMinimize.Location = new Point(520, 29);
             btnHeaderMinimize.Name = "btnHeaderMinimize";
             btnHeaderMinimize.Size = new Size(125, 34);
             btnHeaderMinimize.TabIndex = 0;
@@ -810,7 +848,6 @@ namespace ScreenSelector
             FormClosing += Form1_FormClosing;
             Load += Form1_Load;
             KeyDown += Form1_KeyDown;
-            Resize += Form1_Resize;
             panelSidebar.ResumeLayout(false);
             panelSidebar.PerformLayout();
             panelReady.ResumeLayout(false);
@@ -844,7 +881,7 @@ namespace ScreenSelector
         private Label lblFeatureTextDescription, lblFeatureTextTitle, lblFeatureTextIcon, lblFeaturesDescription, lblFeaturesTitle;
         private Label lblTranslationHint, lblTargetLanguage, lblSourceLanguage, lblTranslationDescription, lblTranslationTitle;
         private Label lblStartupDescription, lblStartupTitle, lblTokenHint, lblToken, lblMusicDescription, lblMusicTitle, lblFooter;
-        private Button btnNavMusic, btnNavTranslation, btnNavSettings, btnNavHome, btnHeaderMinimize, btnSelectNow;
+        private Button btnNavMusic, btnNavTranslation, btnNavSettings, btnNavHome, btnHeaderMinimize, btnHeaderWindowMinimize, btnHeaderClose, btnSelectNow;
         private Button btnChangeShortcut, btnSwapLanguages;
         private TextBox txtShortcut, txtAudDToken;
         private ComboBox cmbTargetLanguage, cmbSourceLanguage;
