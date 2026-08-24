@@ -45,8 +45,30 @@ public partial class ActionToolbarForm : Form
 
     private async void ActionToolbarForm_Shown(object? sender, EventArgs e)
     {
-        if (_autoIdentifyMusic) await IdentifyMusicAsync();
+        if (_autoIdentifyMusic)
+            await IdentifyMusicAsync();
+        else
+            await ExtractTextAndCopyInBackgroundAsync();
     }
+
+    private async Task ExtractTextAndCopyInBackgroundAsync()
+    {
+        try
+        {
+            using var capture = new Bitmap(_capture);
+            var languageTag = LanguageOption.GetOcrTag(_settings.SourceLanguage);
+            var text = await Task.Run(() => OcrService.ExtractTextAsync(capture, languageTag));
+            if (!string.IsNullOrWhiteSpace(text))
+                Clipboard.SetDataObject(ToSingleLine(text), true, 5, 100);
+        }
+        catch
+        {
+            // Varsayılan metin kopyalama işlemi arka planda ve sessiz çalışır.
+        }
+    }
+
+    private static string ToSingleLine(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private void SetBusy(bool busy, string status)
     {

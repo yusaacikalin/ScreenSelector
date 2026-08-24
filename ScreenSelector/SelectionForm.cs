@@ -30,23 +30,15 @@ internal partial class SelectionForm : Form
         UpdateStyles();
     }
 
-    internal SelectionForm(SelectionSession session, Screen screen, bool showInstruction) : this()
+    internal SelectionForm(SelectionSession session, Screen screen) : this()
     {
         _session = session;
         _screenBounds = screen.Bounds;
         Bounds = screen.Bounds;
         Opacity = 0.52D;
-        panelInstruction.Visible = showInstruction;
-        PositionInstruction();
     }
 
     internal Rectangle ScreenBounds => _screenBounds;
-
-    private void PositionInstruction()
-    {
-        panelInstruction.Left = Math.Max(20, (ClientSize.Width - panelInstruction.Width) / 2);
-        panelInstruction.Top = 24;
-    }
 
     private void SelectionForm_Paint(object? sender, PaintEventArgs e)
     {
@@ -69,8 +61,6 @@ internal partial class SelectionForm : Form
         UpdateWindowRegion(current);
         InvalidateSelectionChange(previous, current);
     }
-
-    internal void SetInstructionVisible(bool visible) => panelInstruction.Visible = visible;
 
     private Rectangle TranslateToClient(Rectangle screenRectangle) => new(
         screenRectangle.X - _screenBounds.X,
@@ -135,8 +125,7 @@ internal partial class SelectionForm : Form
 
     private void SelectionForm_MouseDown(object? sender, MouseEventArgs e)
     {
-        if (e.Button != MouseButtons.Left || panelInstruction.Visible && panelInstruction.Bounds.Contains(e.Location))
-            return;
+        if (e.Button != MouseButtons.Left) return;
 
         if (_session?.BeginSelection(this, PointToScreen(e.Location)) != true) return;
         _dragging = true;
@@ -182,13 +171,8 @@ internal partial class SelectionForm : Form
 
     private void DisposeDrawingResources() => _selectionBorder.Dispose();
 
-    private void btnIdentifyMusic_Click(object? sender, EventArgs e) => _session?.OpenActions(autoIdentifyMusic: true);
-    private void btnCancel_Click(object? sender, EventArgs e) => _session?.Cancel();
-
     private void SelectionForm_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Escape) _session?.Cancel();
     }
-
-    private void SelectionForm_Resize(object? sender, EventArgs e) => PositionInstruction();
 }

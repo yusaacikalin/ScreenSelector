@@ -5,6 +5,7 @@ internal sealed class SelectionSession : IDisposable
     private readonly AppSettings _settings;
     private readonly List<SelectionForm> _forms = [];
     private readonly SelectionForm _instructionForm;
+    private readonly SelectionToolbarForm _toolbar;
     private Point _dragStart;
     private Rectangle _selection;
     private SelectionForm? _dragOwner;
@@ -21,13 +22,12 @@ internal sealed class SelectionSession : IDisposable
         {
             foreach (var screen in Screen.AllScreens)
             {
-                var form = new SelectionForm(this, screen,
-                    string.Equals(screen.DeviceName, instructionScreen.DeviceName,
-                        StringComparison.OrdinalIgnoreCase));
+                var form = new SelectionForm(this, screen);
                 _forms.Add(form);
             }
 
             _instructionForm = _forms.First(form => form.ScreenBounds == instructionScreen.Bounds);
+            _toolbar = new SelectionToolbarForm(this, instructionScreen);
         }
         catch
         {
@@ -43,10 +43,9 @@ internal sealed class SelectionSession : IDisposable
         if (_shown || _disposed) return;
         _shown = true;
 
-        // Show the instruction monitor last so the keyboard focus lands there.
-        foreach (var form in _forms.Where(form => form != _instructionForm)) form.Show();
-        _instructionForm.Show();
-        _instructionForm.Activate();
+        foreach (var form in _forms) form.Show();
+        _toolbar.Show();
+        _toolbar.Activate();
     }
 
     internal bool BeginSelection(SelectionForm owner, Point screenPoint)
@@ -56,7 +55,7 @@ internal sealed class SelectionSession : IDisposable
         _dragOwner = owner;
         _dragStart = screenPoint;
         SetSelection(Rectangle.Empty);
-        foreach (var form in _forms) form.SetInstructionVisible(false);
+        _toolbar.Hide();
         return true;
     }
 
@@ -75,8 +74,8 @@ internal sealed class SelectionSession : IDisposable
         if (_selection.Width < 8 || _selection.Height < 4)
         {
             SetSelection(Rectangle.Empty);
-            _instructionForm.SetInstructionVisible(true);
-            _instructionForm.Activate();
+            _toolbar.Show();
+            _toolbar.Activate();
             return;
         }
 
@@ -95,6 +94,7 @@ internal sealed class SelectionSession : IDisposable
                 : _selection;
             var captureArea = GetCaptureArea(area, autoIdentifyMusic);
 
+            _toolbar.Hide();
             foreach (var form in _forms) form.Hide();
             NativeMethods.DwmFlush();
 
@@ -152,6 +152,7 @@ internal sealed class SelectionSession : IDisposable
         if (_finished) return;
         _finished = true;
 
+        if (!_toolbar.IsDisposed) _toolbar.Close();
         foreach (var form in _forms)
         {
             if (!form.IsDisposed) form.Close();
@@ -165,6 +166,7 @@ internal sealed class SelectionSession : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _toolbar.Dispose();
         foreach (var form in _forms) form.Dispose();
         _forms.Clear();
     }
