@@ -23,6 +23,7 @@ namespace ScreenSelector
             lblStatus = new Label();
             btnClose = new Button();
             panelSeparator = new Panel();
+            btnRecord = new Button();
             btnMusic = new Button();
             btnTranslate = new Button();
             btnExtractText = new Button();
@@ -41,6 +42,7 @@ namespace ScreenSelector
             panelToolbar.Controls.Add(lblStatus);
             panelToolbar.Controls.Add(btnClose);
             panelToolbar.Controls.Add(panelSeparator);
+            panelToolbar.Controls.Add(btnRecord);
             panelToolbar.Controls.Add(btnMusic);
             panelToolbar.Controls.Add(btnTranslate);
             panelToolbar.Controls.Add(btnExtractText);
@@ -48,12 +50,12 @@ namespace ScreenSelector
             panelToolbar.Location = new Point(0, 0);
             panelToolbar.Name = "panelToolbar";
             panelToolbar.Padding = new Padding(10);
-            panelToolbar.Size = new Size(610, 86);
+            panelToolbar.Size = new Size(786, 86);
             // progressBusy
             progressBusy.Location = new Point(18, 62);
             progressBusy.MarqueeAnimationSpeed = 24;
             progressBusy.Name = "progressBusy";
-            progressBusy.Size = new Size(526, 3);
+            progressBusy.Size = new Size(702, 3);
             progressBusy.Style = ProgressBarStyle.Marquee;
             progressBusy.TabIndex = 6;
             progressBusy.Visible = false;
@@ -62,7 +64,7 @@ namespace ScreenSelector
             lblStatus.ForeColor = Color.FromArgb(172, 180, 201);
             lblStatus.Location = new Point(18, 67);
             lblStatus.Name = "lblStatus";
-            lblStatus.Size = new Size(526, 15);
+            lblStatus.Size = new Size(702, 15);
             lblStatus.TabIndex = 5;
             lblStatus.Text = "Bir işlem seçin";
             lblStatus.TextAlign = ContentAlignment.MiddleCenter;
@@ -73,7 +75,7 @@ namespace ScreenSelector
             btnClose.FlatStyle = FlatStyle.Flat;
             btnClose.Font = new Font("Segoe UI Semibold", 11F);
             btnClose.ForeColor = Color.FromArgb(214, 219, 232);
-            btnClose.Location = new Point(552, 12);
+            btnClose.Location = new Point(728, 12);
             btnClose.Name = "btnClose";
             btnClose.Size = new Size(46, 46);
             btnClose.TabIndex = 4;
@@ -82,10 +84,24 @@ namespace ScreenSelector
             btnClose.Click += btnClose_Click;
             // panelSeparator
             panelSeparator.BackColor = Color.FromArgb(60, 65, 83);
-            panelSeparator.Location = new Point(536, 18);
+            panelSeparator.Location = new Point(712, 18);
             panelSeparator.Name = "panelSeparator";
             panelSeparator.Size = new Size(1, 34);
             panelSeparator.TabIndex = 3;
+            // btnRecord
+            btnRecord.BackColor = Color.FromArgb(237, 84, 99);
+            btnRecord.Cursor = Cursors.Hand;
+            btnRecord.FlatAppearance.BorderSize = 0;
+            btnRecord.FlatStyle = FlatStyle.Flat;
+            btnRecord.Font = new Font("Segoe UI Semibold", 9.5F);
+            btnRecord.ForeColor = Color.White;
+            btnRecord.Location = new Point(524, 12);
+            btnRecord.Name = "btnRecord";
+            btnRecord.Size = new Size(170, 46);
+            btnRecord.TabIndex = 3;
+            btnRecord.Text = "●  Ekran videosu al";
+            btnRecord.UseVisualStyleBackColor = false;
+            btnRecord.Click += btnRecord_Click;
             // btnMusic
             btnMusic.BackColor = Color.FromArgb(47, 51, 69);
             btnMusic.Cursor = Cursors.Hand;
@@ -136,7 +152,7 @@ namespace ScreenSelector
             panelToast.Controls.Add(panelToastAccent);
             panelToast.Location = new Point(0, 86);
             panelToast.Name = "panelToast";
-            panelToast.Size = new Size(610, 84);
+            panelToast.Size = new Size(786, 84);
             panelToast.TabIndex = 1;
             // panelToastAccent
             panelToastAccent.BackColor = Color.FromArgb(237, 84, 99);
@@ -170,7 +186,7 @@ namespace ScreenSelector
             lblToastMessage.ForeColor = Color.FromArgb(112, 66, 75);
             lblToastMessage.Location = new Point(61, 34);
             lblToastMessage.Name = "lblToastMessage";
-            lblToastMessage.Size = new Size(530, 37);
+            lblToastMessage.Size = new Size(706, 37);
             lblToastMessage.TabIndex = 3;
             lblToastMessage.Text = "Hata açıklaması burada görünür ve birkaç saniye sonra kendiliğinden kapanır.";
             // toastTimer
@@ -180,7 +196,7 @@ namespace ScreenSelector
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.FromArgb(25, 29, 43);
-            ClientSize = new Size(610, 170);
+            ClientSize = new Size(786, 170);
             Controls.Add(panelToast);
             Controls.Add(panelToolbar);
             FormBorderStyle = FormBorderStyle.None;
@@ -204,6 +220,7 @@ namespace ScreenSelector
         private Label lblStatus;
         private Button btnClose;
         private Panel panelSeparator;
+        private Button btnRecord;
         private Button btnMusic;
         private Button btnTranslate;
         private Button btnExtractText;

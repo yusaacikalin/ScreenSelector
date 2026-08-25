@@ -6,6 +6,7 @@ public partial class ActionToolbarForm : Form
     private const int ToastHeight = 170;
     private Bitmap _capture = new(1, 1);
     private AppSettings _settings = new();
+    private Rectangle _selectedScreenArea;
     private bool _autoIdentifyMusic;
     private readonly CancellationTokenSource _cancellation = new();
     private bool _busy;
@@ -24,6 +25,7 @@ public partial class ActionToolbarForm : Form
         _capture.Dispose();
         _capture = new Bitmap(capture);
         _settings = settings;
+        _selectedScreenArea = selectedScreenArea;
         _autoIdentifyMusic = autoIdentifyMusic;
         CollapseToast();
         if (selectionEnd.HasValue)
@@ -76,6 +78,7 @@ public partial class ActionToolbarForm : Form
         btnExtractText.Enabled = !busy;
         btnTranslate.Enabled = !busy;
         btnMusic.Enabled = !busy;
+        btnRecord.Enabled = !busy && !_autoIdentifyMusic;
         progressBusy.Visible = busy;
         lblStatus.Visible = true;
         lblStatus.Text = status;
@@ -121,6 +124,91 @@ public partial class ActionToolbarForm : Form
     }
 
     private async void btnMusic_Click(object? sender, EventArgs e) => await IdentifyMusicAsync();
+
+    private async void btnRecord_Click(object? sender, EventArgs e)
+    {
+        if (_busy) return;
+
+        SetBusy(true, "Ekran kaydı hazırlanıyor…");
+        _keepOpenForChildWindow = true;
+        Hide();
+        NativeMethods.DwmFlush();
+
+        string? outputPath = null;
+        var saved = false;
+        try
+        {
+            using (var countdown = new RecordingCountdownForm(_selectedScreenArea))
+            {
+                if (countdown.ShowDialog() != DialogResult.OK) return;
+            }
+
+            NativeMethods.DwmFlush();
+            outputPath = ScreenRecordingService.CreateOutputPath();
+            using var recorder = new ScreenRecordingService(_selectedScreenArea, outputPath);
+            await recorder.StartAsync(_cancellation.Token);
+
+            using (var controls = new RecordingControlForm(recorder.CaptureArea))
+            {
+                _ = recorder.Completion.ContinueWith(_ =>
+                {
+                    if (controls.IsDisposed || !controls.IsHandleCreated) return;
+                    try { controls.BeginInvoke(controls.Close); }
+                    catch (InvalidOperationException) { }
+                }, TaskScheduler.Default);
+                controls.ShowDialog();
+            }
+
+            await recorder.StopAsync();
+            saved = true;
+            try
+            {
+                CopyRecordingToClipboard(outputPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ekran kaydı kaydedildi ancak panoya kopyalanamadı.\n\n{ex.Message}\n\n{outputPath}",
+                    "Panoya kopyalanamadı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            MessageBox.Show($"Ekran kaydı tamamlandı ve panoya kopyalandı. Ctrl+V ile yapıştırabilirsiniz.\n\n{outputPath}",
+                "Kayıt tamamlandı",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            // Geri sayım veya uygulama kapanışı kaydı sessizce iptal eder.
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ekran videosu kaydedilemedi.\n\n{ex.Message}", "Kayıt hatası",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            if (!saved && outputPath is not null)
+            {
+                try
+                {
+                    if (File.Exists(outputPath)) File.Delete(outputPath);
+                }
+                catch
+                {
+                    // Başarısız kodlayıcının bıraktığı dosya kilitliyse asıl hatayı koru.
+                }
+            }
+            Close();
+        }
+    }
+
+    private static void CopyRecordingToClipboard(string outputPath)
+    {
+        var files = new System.Collections.Specialized.StringCollection { outputPath };
+        var clipboardData = new DataObject();
+        clipboardData.SetFileDropList(files);
+        Clipboard.SetDataObject(clipboardData, true, 5, 100);
+    }
 
     private async Task IdentifyMusicAsync()
     {
