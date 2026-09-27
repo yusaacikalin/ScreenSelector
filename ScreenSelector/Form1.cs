@@ -5,11 +5,21 @@ namespace ScreenSelector
     public partial class Form1 : Form
     {
         private const int HotkeyId = 0x5343;
+        private const int TranslateHotkeyId = 0x5344;
+        private enum ShortcutCapture { None, Selection, Translation }
         private readonly bool _launchMinimized;
         private readonly Icon _applicationIcon;
         private AppSettings _settings = new();
         private bool _loadingSettings;
-        private bool _capturingShortcut;
+        private ShortcutCapture _capturingShortcut;
+        private bool _selectionHotkeyRegistered;
+        private bool _translationHotkeyRegistered;
+        private bool _translatingSelection;
+        private readonly Panel cardTranslateShortcut = new();
+        private readonly Label lblTranslateShortcutState = new();
+        private readonly TextBox txtTranslateShortcut = new();
+        private readonly Button btnChangeTranslateShortcut = new();
+        private readonly ComboBox cmbTranslateShortcutLanguage = new();
         private bool _selectionOpen;
         private SelectionSession? _selectionSession;
         private bool _allowExit;
@@ -92,6 +102,7 @@ namespace ScreenSelector
             StyleFieldLabel(lblTargetLanguage, "Hedef dil", 387, 87);
             ConfigureLanguageCombo(cmbSourceLanguage, 28);
             ConfigureLanguageCombo(cmbTargetLanguage, 387);
+            ConfigureTranslateShortcutCard();
 
             StyleCardTitle(lblStartupTitle, "Başlangıç davranışı", 28, 20);
             StyleDescription(lblStartupDescription,
@@ -189,6 +200,66 @@ namespace ScreenSelector
             combo.SelectedIndexChanged += language_SelectedIndexChanged;
         }
 
+        private void ConfigureTranslateShortcutCard()
+        {
+            cardTranslateShortcut.BackColor = Color.White;
+            cardTranslateShortcut.Size = new Size(682, 213);
+            cardTranslateShortcut.Margin = new Padding(3, 3, 3, 14);
+            cardTranslateShortcut.Name = nameof(cardTranslateShortcut);
+            contentFlow.Controls.Add(cardTranslateShortcut);
+            contentFlow.Controls.SetChildIndex(cardTranslateShortcut,
+                contentFlow.Controls.GetChildIndex(cardTranslation) + 1);
+
+            var title = new Label();
+            StyleCardTitle(title, "Seçili metni yerinde çevir", 28, 20);
+            cardTranslateShortcut.Controls.Add(title);
+            var description = new Label();
+            StyleDescription(description, "Bir uygulamada metin seçin; kısayol çevirip seçimin yerine yapıştırsın.", 28, 53);
+            cardTranslateShortcut.Controls.Add(description);
+            var shortcutLabel = new Label();
+            StyleFieldLabel(shortcutLabel, "Çeviri kısayolu", 28, 87);
+            cardTranslateShortcut.Controls.Add(shortcutLabel);
+            var languageLabel = new Label();
+            StyleFieldLabel(languageLabel, "Çevrilecek dil", 387, 87);
+            cardTranslateShortcut.Controls.Add(languageLabel);
+
+            txtTranslateShortcut.BackColor = Color.FromArgb(247, 248, 252);
+            txtTranslateShortcut.BorderStyle = BorderStyle.FixedSingle;
+            txtTranslateShortcut.Font = new Font("Segoe UI Semibold", 11F);
+            txtTranslateShortcut.ForeColor = Color.FromArgb(31, 37, 56);
+            txtTranslateShortcut.Location = new Point(28, 114);
+            txtTranslateShortcut.ReadOnly = true;
+            txtTranslateShortcut.Size = new Size(158, 27);
+            txtTranslateShortcut.TextAlign = HorizontalAlignment.Center;
+            cardTranslateShortcut.Controls.Add(txtTranslateShortcut);
+
+            btnChangeTranslateShortcut.BackColor = Color.FromArgb(238, 236, 255);
+            btnChangeTranslateShortcut.Cursor = Cursors.Hand;
+            btnChangeTranslateShortcut.FlatAppearance.BorderSize = 0;
+            btnChangeTranslateShortcut.FlatStyle = FlatStyle.Flat;
+            btnChangeTranslateShortcut.Font = new Font("Segoe UI Semibold", 9F);
+            btnChangeTranslateShortcut.ForeColor = Color.FromArgb(82, 68, 221);
+            btnChangeTranslateShortcut.Location = new Point(198, 110);
+            btnChangeTranslateShortcut.Size = new Size(158, 36);
+            btnChangeTranslateShortcut.Text = "Kısayolu değiştir";
+            btnChangeTranslateShortcut.Click += btnChangeTranslateShortcut_Click;
+            cardTranslateShortcut.Controls.Add(btnChangeTranslateShortcut);
+
+            cmbTranslateShortcutLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbTranslateShortcutLanguage.Font = new Font("Segoe UI", 10F);
+            cmbTranslateShortcutLanguage.Location = new Point(387, 114);
+            cmbTranslateShortcutLanguage.Size = new Size(263, 25);
+            cmbTranslateShortcutLanguage.SelectedIndexChanged += translateShortcutLanguage_SelectedIndexChanged;
+            cardTranslateShortcut.Controls.Add(cmbTranslateShortcutLanguage);
+
+            lblTranslateShortcutState.Font = new Font("Segoe UI", 8.5F);
+            lblTranslateShortcutState.ForeColor = Color.FromArgb(90, 102, 126);
+            lblTranslateShortcutState.Location = new Point(28, 159);
+            lblTranslateShortcutState.Size = new Size(622, 39);
+            lblTranslateShortcutState.Text = "Kaynak dil otomatik algılanır. Tek tuş veya bir değiştirici + bir tuş atayın.";
+            cardTranslateShortcut.Controls.Add(lblTranslateShortcutState);
+        }
+
         private void ConfigureCheck(CheckBox check, string text, int left)
         {
             check.AutoSize = true;
@@ -208,16 +279,21 @@ namespace ScreenSelector
             cmbSourceLanguage.DisplayMember = nameof(LanguageOption.Name);
             cmbTargetLanguage.DataSource = Languages.Where(language => language.Code != "auto").ToArray();
             cmbTargetLanguage.DisplayMember = nameof(LanguageOption.Name);
+            cmbTranslateShortcutLanguage.DataSource = Languages.Where(language => language.Code != "auto").ToArray();
+            cmbTranslateShortcutLanguage.DisplayMember = nameof(LanguageOption.Name);
             SelectLanguage(cmbSourceLanguage, _settings.SourceLanguage);
             SelectLanguage(cmbTargetLanguage, _settings.TargetLanguage);
+            SelectLanguage(cmbTranslateShortcutLanguage, _settings.TranslateHotkeyLanguage);
             chkStartWithWindows.Checked = _settings.StartWithWindows;
             chkStartMinimized.Checked = _settings.StartMinimized;
             txtAudDToken.Text = _settings.AudDToken;
             txtShortcut.Text = FormatShortcut(_settings.HotkeyModifiers, _settings.HotkeyKey);
+            txtTranslateShortcut.Text = FormatShortcut(_settings.TranslateHotkeyModifiers, _settings.TranslateHotkeyKey);
             _loadingSettings = false;
             _settingsLoaded = true;
 
             RegisterCurrentHotkey(showError: true);
+            RegisterTranslateHotkey(showError: true);
             if (_launchMinimized)
             {
                 BeginInvoke(MinimizeToTray);
@@ -232,6 +308,7 @@ namespace ScreenSelector
             if (_settingsLoaded && !_allowExit)
             {
                 RegisterCurrentHotkey(showError: false);
+                RegisterTranslateHotkey(showError: false);
             }
         }
 
@@ -242,6 +319,12 @@ namespace ScreenSelector
                 BeginInvoke(StartSelection);
                 return;
             }
+            if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == TranslateHotkeyId)
+            {
+                var targetWindow = NativeMethods.GetForegroundWindow();
+                BeginInvoke((Action)(() => TranslateSelectedTextAsync(targetWindow)));
+                return;
+            }
             base.WndProc(ref m);
         }
 
@@ -250,14 +333,79 @@ namespace ScreenSelector
             if (IsHandleCreated) NativeMethods.UnregisterHotKey(Handle, HotkeyId);
             var registered = NativeMethods.RegisterHotKey(Handle, HotkeyId,
                 _settings.HotkeyModifiers | HotkeyModifiers.NoRepeat, _settings.HotkeyKey);
-            lblReady.Text = registered ? "Kısayol dinleniyor" : "Kısayol kullanılamıyor";
-            lblReadyDot.ForeColor = registered ? Color.FromArgb(75, 220, 160) : Color.FromArgb(248, 104, 116);
+            _selectionHotkeyRegistered = registered;
+            UpdateHotkeyStatus();
             if (!registered && showError)
             {
                 MessageBox.Show("Seçtiğiniz kısayol başka bir uygulama tarafından kullanılıyor. Lütfen farklı bir kısayol seçin.",
                     "Kısayol kaydedilemedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             return registered;
+        }
+
+        private bool RegisterTranslateHotkey(bool showError)
+        {
+            if (IsHandleCreated) NativeMethods.UnregisterHotKey(Handle, TranslateHotkeyId);
+            var registered = NativeMethods.RegisterHotKey(Handle, TranslateHotkeyId,
+                _settings.TranslateHotkeyModifiers | HotkeyModifiers.NoRepeat, _settings.TranslateHotkeyKey);
+            _translationHotkeyRegistered = registered;
+            UpdateHotkeyStatus();
+            if (!registered && showError)
+            {
+                MessageBox.Show("Çeviri kısayolu başka bir uygulama tarafından kullanılıyor. Lütfen farklı bir kısayol seçin.",
+                    "Çeviri kısayolu kaydedilemedi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            return registered;
+        }
+
+        private void UpdateHotkeyStatus()
+        {
+            var bothRegistered = _selectionHotkeyRegistered && _translationHotkeyRegistered;
+            lblReady.Text = bothRegistered ? "Kısayollar dinleniyor" : "Kısayol kullanılamıyor";
+            lblReadyDot.ForeColor = bothRegistered ? Color.FromArgb(75, 220, 160) : Color.FromArgb(248, 104, 116);
+        }
+
+        private async void TranslateSelectedTextAsync(IntPtr targetWindow)
+        {
+            if (_translatingSelection || targetWindow == IntPtr.Zero) return;
+            _translatingSelection = true;
+            try
+            {
+                var shortcutKey = _settings.TranslateHotkeyKey;
+                var targetLanguage = _settings.TranslateHotkeyLanguage;
+                var selectedText = await SelectedTextTranslation.ReadSelectionAsync(targetWindow,
+                    shortcutKey);
+                if (string.IsNullOrWhiteSpace(selectedText))
+                {
+                    ShowTranslationNotice("Çevrilecek seçili metin bulunamadı.");
+                    return;
+                }
+
+                var translated = await TranslationService.TranslateAsync(selectedText, "auto",
+                    targetLanguage, CancellationToken.None);
+                var currentSelection = await SelectedTextTranslation.ReadSelectionAsync(targetWindow,
+                    shortcutKey);
+                if (currentSelection != selectedText)
+                    throw new InvalidOperationException("Çeviri sırasında metin seçimi değişti; metin değiştirilmedi.");
+                await SelectedTextTranslation.ReplaceSelectionAsync(targetWindow, translated.Text);
+                var languageName = Languages.FirstOrDefault(language => language.Code == targetLanguage)?.Name
+                    ?? targetLanguage;
+                ShowTranslationNotice($"Seçili metin {languageName} diline çevrildi.");
+            }
+            catch (Exception ex)
+            {
+                ShowTranslationNotice($"Çeviri yapılamadı: {ex.Message}");
+            }
+            finally
+            {
+                _translatingSelection = false;
+            }
+        }
+
+        private void ShowTranslationNotice(string message)
+        {
+            if (!IsDisposed && notifyIcon.Visible)
+                notifyIcon.ShowBalloonTip(3500, "ScreenSelector", message, ToolTipIcon.Info);
         }
 
         private void StartSelection()
@@ -321,7 +469,7 @@ namespace ScreenSelector
 
         private void btnChangeShortcut_Click(object? sender, EventArgs e)
         {
-            _capturingShortcut = true;
+            _capturingShortcut = ShortcutCapture.Selection;
             txtShortcut.Text = "Yeni kısayola basın…";
             txtShortcut.BackColor = Color.FromArgb(255, 250, 224);
             lblHotkeyState.Text = "Tek bir tuşa veya istediğiniz tuş birleşimine basın. Esc: iptal";
@@ -329,9 +477,19 @@ namespace ScreenSelector
             Focus();
         }
 
+        private void btnChangeTranslateShortcut_Click(object? sender, EventArgs e)
+        {
+            _capturingShortcut = ShortcutCapture.Translation;
+            txtTranslateShortcut.Text = "Yeni kısayola basın…";
+            txtTranslateShortcut.BackColor = Color.FromArgb(255, 250, 224);
+            lblTranslateShortcutState.Text = "Tek tuşa veya bir değiştirici + tuşa basın. Esc: iptal";
+            btnChangeTranslateShortcut.Text = "Dinliyor…";
+            Focus();
+        }
+
         private void Form1_KeyDown(object? sender, KeyEventArgs e)
         {
-            if (!_capturingShortcut) return;
+            if (_capturingShortcut == ShortcutCapture.None) return;
             e.Handled = true;
             e.SuppressKeyPress = true;
             if (e.KeyCode == Keys.Escape) { EndShortcutCapture(); return; }
@@ -341,6 +499,31 @@ namespace ScreenSelector
             if (e.Control) modifiers |= HotkeyModifiers.Control;
             if (e.Shift) modifiers |= HotkeyModifiers.Shift;
             if (e.Alt) modifiers |= HotkeyModifiers.Alt;
+            if (_capturingShortcut == ShortcutCapture.Translation)
+            {
+                var modifierCount = (e.Control ? 1 : 0) + (e.Shift ? 1 : 0) + (e.Alt ? 1 : 0);
+                if (modifierCount > 1)
+                {
+                    lblTranslateShortcutState.Text = "En fazla iki tuş kullanın: bir değiştirici ve bir ana tuş.";
+                    return;
+                }
+
+                var previousTranslateKey = _settings.TranslateHotkeyKey;
+                var previousTranslateModifiers = _settings.TranslateHotkeyModifiers;
+                _settings.TranslateHotkeyKey = e.KeyCode;
+                _settings.TranslateHotkeyModifiers = modifiers;
+                if (!RegisterTranslateHotkey(showError: false))
+                {
+                    _settings.TranslateHotkeyKey = previousTranslateKey;
+                    _settings.TranslateHotkeyModifiers = previousTranslateModifiers;
+                    RegisterTranslateHotkey(showError: false);
+                    lblTranslateShortcutState.Text = "Bu kısayol kullanımda; başka bir tuş veya birleşim deneyin.";
+                    return;
+                }
+                SaveSettings();
+                EndShortcutCapture();
+                return;
+            }
             var previousKey = _settings.HotkeyKey;
             var previousModifiers = _settings.HotkeyModifiers;
             _settings.HotkeyKey = e.KeyCode;
@@ -359,11 +542,15 @@ namespace ScreenSelector
 
         private void EndShortcutCapture()
         {
-            _capturingShortcut = false;
+            _capturingShortcut = ShortcutCapture.None;
             txtShortcut.Text = FormatShortcut(_settings.HotkeyModifiers, _settings.HotkeyKey);
             txtShortcut.BackColor = Color.FromArgb(247, 248, 252);
             lblHotkeyState.Text = "Tek tuş veya tuş birleşimi atayabilirsiniz. Örnek: Pause";
             btnChangeShortcut.Text = "Kısayolu değiştir";
+            txtTranslateShortcut.Text = FormatShortcut(_settings.TranslateHotkeyModifiers, _settings.TranslateHotkeyKey);
+            txtTranslateShortcut.BackColor = Color.FromArgb(247, 248, 252);
+            lblTranslateShortcutState.Text = "Kaynak dil otomatik algılanır. Tek tuş veya bir değiştirici + bir tuş atayın.";
+            btnChangeTranslateShortcut.Text = "Kısayolu değiştir";
         }
 
         private static string FormatShortcut(HotkeyModifiers modifiers, Keys key)
@@ -382,6 +569,13 @@ namespace ScreenSelector
             if (_loadingSettings) return;
             if (cmbSourceLanguage.SelectedItem is LanguageOption source) _settings.SourceLanguage = source.Code;
             if (cmbTargetLanguage.SelectedItem is LanguageOption target) _settings.TargetLanguage = target.Code;
+            SaveSettings();
+        }
+
+        private void translateShortcutLanguage_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (_loadingSettings || cmbTranslateShortcutLanguage.SelectedItem is not LanguageOption language) return;
+            _settings.TranslateHotkeyLanguage = language.Code;
             SaveSettings();
         }
 
@@ -467,6 +661,7 @@ namespace ScreenSelector
                 return;
             }
             NativeMethods.UnregisterHotKey(Handle, HotkeyId);
+            NativeMethods.UnregisterHotKey(Handle, TranslateHotkeyId);
             _selectionSession?.Dispose();
             _selectionSession = null;
             notifyIcon.Visible = false;

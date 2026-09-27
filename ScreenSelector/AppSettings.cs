@@ -19,6 +19,9 @@ public sealed class AppSettings
     public int SettingsSchema { get; set; } = 2;
     public Keys HotkeyKey { get; set; } = Keys.Space;
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
+    public Keys TranslateHotkeyKey { get; set; } = Keys.F8;
+    public HotkeyModifiers TranslateHotkeyModifiers { get; set; } = HotkeyModifiers.Control;
+    public string TranslateHotkeyLanguage { get; set; } = "tr";
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; } = true;
     public string SourceLanguage { get; set; } = "auto";

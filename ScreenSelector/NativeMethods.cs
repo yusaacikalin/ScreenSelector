@@ -11,6 +11,43 @@ internal static class NativeMethods
     internal const int CursorShowing = 0x00000001;
     internal const uint DrawIconNormal = 0x0003;
     internal const uint WdaExcludeFromCapture = 0x00000011;
+    internal const uint KeyEventKeyUp = 0x0002;
+    internal const uint InputKeyboard = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Input
+    {
+        internal uint Type;
+        internal InputUnion Data;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct InputUnion
+    {
+        [FieldOffset(0)] internal KeyboardInput Keyboard;
+        [FieldOffset(0)] internal MouseInput Mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MouseInput
+    {
+        internal int X;
+        internal int Y;
+        internal uint MouseData;
+        internal uint Flags;
+        internal uint Time;
+        internal IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KeyboardInput
+    {
+        internal ushort VirtualKey;
+        internal ushort ScanCode;
+        internal uint Flags;
+        internal uint Time;
+        internal IntPtr ExtraInfo;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct CursorInfo
@@ -38,6 +75,18 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    internal static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetClipboardSequenceNumber();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint SendInput(uint inputCount, [In] Input[] inputs, int size);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
