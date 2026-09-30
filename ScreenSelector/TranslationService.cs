@@ -6,12 +6,33 @@ using System.Text.Json;
 namespace ScreenSelector;
 
 internal sealed record TranslationResult(string Text, string DetectedSourceLanguage);
+internal sealed record TranslatedTextLine(string Text, RectangleF Bounds, string? SourceText = null);
 
 internal static class TranslationService
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(30) };
     private static readonly ConcurrentDictionary<string, CachedTranslation> Cache = new();
     private static DateTimeOffset _googleBlockedUntil = DateTimeOffset.MinValue;
+
+    public static async Task<IReadOnlyList<TranslatedTextLine>> TranslateLinesAsync(
+        IReadOnlyList<OcrTextLine> lines, string sourceLanguage, string targetLanguage,
+        CancellationToken cancellationToken)
+    {
+        // Keep each reply associated with its own position, even when the
+        // service joins or splits sentences. Repeated labels need one request.
+        using var concurrency = new SemaphoreSlim(3);
+        var requests = lines.Select(line => line.Text).Distinct().ToDictionary(text => text, TranslateLineAsync);
+        await Task.WhenAll(requests.Values);
+        cancellationToken.ThrowIfCancellationRequested();
+        return lines.Select(line => new TranslatedTextLine(requests[line.Text].Result.Text, line.Bounds, line.Text)).ToArray();
+
+        async Task<TranslationResult> TranslateLineAsync(string text)
+        {
+            await concurrency.WaitAsync(cancellationToken);
+            try { return await TranslateAsync(text, sourceLanguage, targetLanguage, cancellationToken); }
+            finally { concurrency.Release(); }
+        }
+    }
 
     public static async Task<TranslationResult> TranslateAsync(string text, string sourceLanguage,
         string targetLanguage, CancellationToken cancellationToken)
@@ -116,22 +137,42 @@ internal static class TranslationService
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("responseData", out var responseData) ||
-                !responseData.TryGetProperty("translatedText", out var translatedElement))
-                throw new InvalidOperationException("Çeviri servisleri geçerli bir yanıt vermedi.");
-
-            var translated = WebUtility.HtmlDecode(translatedElement.GetString() ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(translated))
-                throw new InvalidOperationException("Çeviri servisleri boş yanıt verdi.");
-            translatedParts.Add(translated);
-
-            if (responseData.TryGetProperty("detectedLanguage", out var detectedElement) &&
-                !string.IsNullOrWhiteSpace(detectedElement.GetString()))
-                detectedLanguage = detectedElement.GetString()!;
+            var result = ParseMyMemoryResult(document.RootElement, part, sourceLanguage, targetLanguage);
+            translatedParts.Add(result.Text);
+            detectedLanguage = result.DetectedSourceLanguage;
         }
 
         return new TranslationResult(string.Join(Environment.NewLine, translatedParts), detectedLanguage);
+    }
+
+    internal static TranslationResult ParseMyMemoryResult(JsonElement root, string originalText,
+        string sourceLanguage, string targetLanguage)
+    {
+        if (!root.TryGetProperty("responseData", out var data) ||
+            !data.TryGetProperty("translatedText", out var translatedElement) ||
+            translatedElement.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("Çeviri servisleri geçerli bir yanıt vermedi.");
+        var translated = WebUtility.HtmlDecode(translatedElement.GetString() ?? string.Empty).Trim();
+        var details = root.TryGetProperty("responseDetails", out var detailElement) &&
+                      detailElement.ValueKind == JsonValueKind.String ? detailElement.GetString() ?? "" : "";
+        const string identicalLanguages = "PLEASE SELECT TWO DISTINCT LANGUAGES";
+        if (translated.Contains(identicalLanguages, StringComparison.OrdinalIgnoreCase) ||
+            details.Contains(identicalLanguages, StringComparison.OrdinalIgnoreCase))
+        {
+            // Autodetection can find an already-target-language label in a
+            // mixed-language selection. Preserve it instead of painting the error.
+            if (string.IsNullOrWhiteSpace(sourceLanguage) || sourceLanguage == "auto" || sourceLanguage == targetLanguage)
+                return new TranslationResult(originalText, targetLanguage);
+            throw new InvalidOperationException("Çeviri servisi kaynak ve hedef dili ayıramadı.");
+        }
+        if (root.TryGetProperty("responseStatus", out var status) &&
+            (!int.TryParse(status.ToString(), out var code) || code != 200))
+            throw new InvalidOperationException("Çeviri servisi isteği tamamlayamadı. Lütfen tekrar deneyin.");
+        if (string.IsNullOrWhiteSpace(translated))
+            throw new InvalidOperationException("Çeviri servisleri boş yanıt verdi.");
+        var detected = data.TryGetProperty("detectedLanguage", out var language) &&
+                       language.ValueKind == JsonValueKind.String ? language.GetString() : null;
+        return new TranslationResult(translated, string.IsNullOrWhiteSpace(detected) ? sourceLanguage : detected);
     }
 
     private static IEnumerable<string> SplitForFallback(string text, int maximumLength)

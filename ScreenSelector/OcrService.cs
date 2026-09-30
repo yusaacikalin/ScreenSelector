@@ -9,6 +9,73 @@ namespace ScreenSelector;
 
 internal static class OcrService
 {
+    public static async Task<IReadOnlyList<OcrTextLine>> ExtractLinesAsync(Bitmap bitmap, string languageTag,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var candidates = OcrImagePreprocessor.CreateCandidates(bitmap, includeInverted: true);
+        var results = new List<IReadOnlyList<OcrTextLine>>();
+        Exception? lastError = null;
+        var recognized = false;
+        try
+        {
+            try
+            {
+                var layouts = await TesseractOcrService.RecognizeLayoutsAsync(candidates, bitmap.Size,
+                    languageTag, cancellationToken);
+                recognized = layouts.Count > 0;
+                results.AddRange(layouts.Where(lines => lines.Count > 0));
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { lastError = ex; }
+
+            try
+            {
+                var engine = CreateEngine(languageTag);
+                foreach (var candidate in candidates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var lines = await RecognizeLinesAsync(candidate, engine, bitmap.Size, excludeEdges: false);
+                    recognized = true;
+                    if (lines.Count > 0) results.Add(lines);
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { lastError = ex; }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (results.Count == 0)
+            {
+                if (!recognized && lastError != null) throw lastError;
+                return [];
+            }
+
+            var texts = results.Select(lines => string.Join(Environment.NewLine, lines.Select(line => line.Text)))
+                .ToArray();
+            var best = results[Array.IndexOf(texts, SelectBestResult(texts))].ToList();
+            // Mixed light/dark panels can be recognized by different passes.
+            // Keep the preferred wording, then add only previously unseen areas.
+            foreach (var layout in results)
+            foreach (var line in layout)
+            {
+                if (!best.Any(existing => OccupiesSameArea(existing.Bounds, line.Bounds))) best.Add(line);
+            }
+            return best.OrderBy(line => line.Bounds.Top).ThenBy(line => line.Bounds.Left).ToArray();
+        }
+        finally
+        {
+            foreach (var candidate in candidates) candidate.Dispose();
+        }
+    }
+
+    private static bool OccupiesSameArea(RectangleF first, RectangleF second)
+    {
+        var intersection = RectangleF.Intersect(first, second);
+        return intersection.Width > 0 && intersection.Height > 0 &&
+               intersection.Width * intersection.Height >=
+               Math.Min(first.Width * first.Height, second.Width * second.Height) * 0.35f;
+    }
+
     public static async Task<string> ExtractTextAsync(Bitmap bitmap, string languageTag)
     {
         var engine = CreateEngine(languageTag);
@@ -36,7 +103,8 @@ internal static class OcrService
             {
                 try
                 {
-                    var text = await RecognizeSingleAsync(candidate, engine);
+                    var lines = await RecognizeLinesAsync(candidate, engine, bitmap.Size, excludeEdges: true);
+                    var text = string.Join(Environment.NewLine, lines.Select(line => line.Text));
                     var cleanedText = CleanResult(text);
                     if (!string.IsNullOrWhiteSpace(cleanedText)) recognizedResults.Add(cleanedText);
                 }
@@ -70,7 +138,8 @@ internal static class OcrService
             "Windows OCR motoru kullanılamıyor. Windows Ayarları > Dil ve bölge bölümünden ilgili dilin OCR bileşenini yükleyin.");
     }
 
-    private static async Task<string> RecognizeSingleAsync(OcrImageCandidate candidate, OcrEngine engine)
+    private static async Task<IReadOnlyList<OcrTextLine>> RecognizeLinesAsync(OcrImageCandidate candidate,
+        OcrEngine engine, Size sourceSize, bool excludeEdges)
     {
         using var memory = new MemoryStream();
         candidate.Image.Save(memory, ImageFormat.Png);
@@ -99,10 +168,9 @@ internal static class OcrService
             BitmapAlphaMode.Premultiplied, transform, ExifOrientationMode.IgnoreExifOrientation,
             ColorManagementMode.DoNotColorManage);
         var result = await engine.RecognizeAsync(softwareBitmap);
-        var scaledContentBounds = new RectangleF((float)(candidate.ContentBounds.X * scale),
-            (float)(candidate.ContentBounds.Y * scale), (float)(candidate.ContentBounds.Width * scale),
-            (float)(candidate.ContentBounds.Height * scale));
-        var completeLines = new List<string>();
+        var scaleX = (float)transform.ScaledWidth / candidate.Image.Width;
+        var scaleY = (float)transform.ScaledHeight / candidate.Image.Height;
+        var completeLines = new List<OcrTextLine>();
         foreach (var line in result.Lines)
         {
             if (line.Words.Count == 0) continue;
@@ -110,10 +178,26 @@ internal static class OcrService
             var top = line.Words.Min(word => word.BoundingRect.Y);
             var right = line.Words.Max(word => word.BoundingRect.X + word.BoundingRect.Width);
             var bottom = line.Words.Max(word => word.BoundingRect.Y + word.BoundingRect.Height);
-            if (TouchesSelectionEdge(left, top, right, bottom, scaledContentBounds)) continue;
-            completeLines.Add(line.Text);
+            var candidateBounds = RectangleF.FromLTRB((float)left / scaleX, (float)top / scaleY,
+                (float)right / scaleX, (float)bottom / scaleY);
+            if (excludeEdges && TouchesSelectionEdge(candidateBounds.Left, candidateBounds.Top,
+                    candidateBounds.Right, candidateBounds.Bottom, candidate.ContentBounds)) continue;
+            var bounds = candidate.ToSourceBounds(candidateBounds, sourceSize);
+            if (bounds.Width > 0 && bounds.Height > 0 && !string.IsNullOrWhiteSpace(line.Text))
+            {
+                if (excludeEdges) completeLines.Add(new OcrTextLine(line.Text.Trim(), bounds));
+                else
+                {
+                    var words = line.Words.Select(word => new OcrTextLine(word.Text,
+                        candidate.ToSourceBounds(new RectangleF((float)word.BoundingRect.X / scaleX,
+                            (float)word.BoundingRect.Y / scaleY, (float)word.BoundingRect.Width / scaleX,
+                            (float)word.BoundingRect.Height / scaleY), sourceSize)))
+                        .Where(word => word.Bounds.Width > 0 && word.Bounds.Height > 0);
+                    completeLines.AddRange(OcrTextLine.SplitAtLargeGaps(words));
+                }
+            }
         }
-        return string.Join(Environment.NewLine, completeLines).Trim();
+        return completeLines;
     }
 
     private static bool TouchesSelectionEdge(double left, double top, double right, double bottom,

@@ -5,6 +5,57 @@ namespace ScreenSelector;
 
 internal static class TesseractOcrService
 {
+    public static Task<IReadOnlyList<IReadOnlyList<OcrTextLine>>> RecognizeLayoutsAsync(
+        IReadOnlyList<OcrImageCandidate> candidates, Size sourceSize, string languageTag,
+        CancellationToken cancellationToken)
+    {
+        return Task.Run<IReadOnlyList<IReadOnlyList<OcrTextLine>>>(() =>
+        {
+            var directory = Path.GetDirectoryName(typeof(TesseractOcrService).Assembly.Location)
+                            ?? AppContext.BaseDirectory;
+            var tessdataPath = Path.Combine(directory, "tessdata");
+            if (!Directory.Exists(tessdataPath)) return [];
+
+            using var engine = new TesseractEngine(tessdataPath, GetLanguage(languageTag, tessdataPath),
+                EngineMode.LstmOnly);
+            engine.SetVariable("user_defined_dpi", "300");
+            var results = new List<IReadOnlyList<OcrTextLine>>();
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using var memory = new MemoryStream();
+                candidate.Image.Save(memory, System.Drawing.Imaging.ImageFormat.Png);
+                using var pix = Pix.LoadFromMemory(memory.ToArray());
+                // Even SparseText can put an entire menu bar on one TextLine.
+                // Read word boxes and split that line using the actual gaps.
+                using var page = engine.Process(pix, PageSegMode.SparseText);
+                using var iterator = page.GetIterator();
+                iterator.Begin();
+                var lines = new List<OcrTextLine>();
+                var words = new List<OcrTextLine>();
+                do
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (iterator.IsAtBeginningOf(PageIteratorLevel.TextLine))
+                    {
+                        lines.AddRange(OcrTextLine.SplitAtLargeGaps(words));
+                        words.Clear();
+                    }
+                    if (!iterator.TryGetBoundingBox(PageIteratorLevel.Word, out var box) ||
+                        iterator.GetConfidence(PageIteratorLevel.TextLine) < 45f) continue;
+                    var text = iterator.GetText(PageIteratorLevel.Word)?.Trim();
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+                    var bounds = candidate.ToSourceBounds(
+                        RectangleF.FromLTRB(box.X1, box.Y1, box.X2, box.Y2), sourceSize);
+                    if (bounds.Width > 0 && bounds.Height > 0) words.Add(new OcrTextLine(text, bounds));
+                } while (iterator.Next(PageIteratorLevel.Word));
+                lines.AddRange(OcrTextLine.SplitAtLargeGaps(words));
+                results.Add(lines.Where(line => line.Text.Any(char.IsLetterOrDigit)).ToArray());
+            }
+            return results;
+        }, cancellationToken);
+    }
+
     public static Task<IReadOnlyList<string>> RecognizeCandidatesAsync(IReadOnlyList<OcrImageCandidate> candidates,
         string languageTag)
     {

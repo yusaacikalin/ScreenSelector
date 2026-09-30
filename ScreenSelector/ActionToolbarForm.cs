@@ -7,6 +7,12 @@ public partial class ActionToolbarForm : Form
     private Bitmap _capture = new(1, 1);
     private AppSettings _settings = new();
     private Rectangle _selectedScreenArea;
+    private Rectangle _captureScreenArea;
+    private InlineTranslationSurface? _translationSurface;
+    private GlobalMouseClickMonitor? _translationClickMonitor;
+    private bool _translationCloseQueued;
+    private bool _closing;
+    private bool _resourcesDisposed;
     private bool _autoIdentifyMusic;
     private readonly CancellationTokenSource _cancellation = new();
     private bool _busy;
@@ -19,13 +25,17 @@ public partial class ActionToolbarForm : Form
     }
 
     public ActionToolbarForm(Bitmap capture, AppSettings settings, Rectangle selectedScreenArea, bool autoIdentifyMusic,
-        Point? selectionEnd = null)
+        Point? selectionEnd = null, Rectangle? captureScreenArea = null)
         : this()
     {
         _capture.Dispose();
         _capture = new Bitmap(capture);
         _settings = settings;
         _selectedScreenArea = selectedScreenArea;
+        _captureScreenArea = captureScreenArea ?? new Rectangle(
+            selectedScreenArea.X + (selectedScreenArea.Width - capture.Width) / 2,
+            selectedScreenArea.Y + (selectedScreenArea.Height - capture.Height) / 2,
+            capture.Width, capture.Height);
         _autoIdentifyMusic = autoIdentifyMusic;
         CollapseToast();
         if (selectionEnd.HasValue)
@@ -60,7 +70,7 @@ public partial class ActionToolbarForm : Form
             using var capture = new Bitmap(_capture);
             var languageTag = LanguageOption.GetOcrTag(_settings.SourceLanguage);
             var text = await Task.Run(() => OcrService.ExtractTextAsync(capture, languageTag));
-            if (!string.IsNullOrWhiteSpace(text))
+            if (!_closing && !IsDisposed && !string.IsNullOrWhiteSpace(text))
                 Clipboard.SetDataObject(ToSingleLine(text), true, 5, 100);
         }
         catch
@@ -104,23 +114,107 @@ public partial class ActionToolbarForm : Form
 
     private async void btnTranslate_Click(object? sender, EventArgs e)
     {
+        if (_busy) return;
         SetBusy(true, "Metin okunuyor ve çevriliyor…");
+        var cancellationToken = _cancellation.Token;
         try
         {
-            var text = await OcrService.ExtractTextAsync(_capture, LanguageOption.GetOcrTag(_settings.SourceLanguage));
-            if (string.IsNullOrWhiteSpace(text))
+            _translationClickMonitor = new GlobalMouseClickMonitor(QueueTranslationClose);
+            // The form may close during OCR. This operation owns its bitmap
+            // until the worker finishes, independently of the form's lifetime.
+            using var capture = new Bitmap(_capture);
+            var languageTag = LanguageOption.GetOcrTag(_settings.SourceLanguage);
+            var lines = await Task.Run(() => OcrService.ExtractLinesAsync(capture, languageTag, cancellationToken),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (lines.Count == 0)
                 throw new InvalidOperationException("Seçili alanda okunabilir bir metin bulunamadı.");
-            var translated = await TranslationService.TranslateAsync(text, _settings.SourceLanguage,
-                _settings.TargetLanguage, _cancellation.Token);
-            ShowResult(ResultData.ForTranslation(text, translated.Text, translated.DetectedSourceLanguage,
-                _settings.TargetLanguage));
+            var translated = await TranslationService.TranslateLinesAsync(lines, _settings.SourceLanguage,
+                _settings.TargetLanguage, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_closing && !IsDisposed) ShowInlineTranslation(translated);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             ShowOperationError("Çeviri tamamlanamadı", ex.Message);
         }
-        finally { if (!IsDisposed) SetBusy(false, "Bir işlem seçin"); }
+        finally
+        {
+            if (_translationSurface == null)
+            {
+                _translationClickMonitor?.Dispose();
+                _translationClickMonitor = null;
+            }
+            if (!_closing && !IsDisposed) SetBusy(false, "Bir işlem seçin");
+        }
+    }
+
+    internal void ShowInlineTranslation(IReadOnlyList<TranslatedTextLine> lines)
+    {
+        var surface = new InlineTranslationSurface(_capture, lines);
+        if (surface.Layouts.Count == 0)
+        {
+            surface.Dispose();
+            Close();
+            return;
+        }
+        try { _translationClickMonitor ??= new GlobalMouseClickMonitor(QueueTranslationClose); }
+        catch
+        {
+            surface.Dispose();
+            throw;
+        }
+
+        _translationSurface = surface;
+        // Reuse this existing window. Its region consists only of translated
+        // lines; the rest of the desktop remains live and visible.
+        _keepOpenForChildWindow = true;
+        toastTimer.Stop();
+        Hide();
+        panelToolbar.Visible = false;
+        panelToast.Visible = false;
+        AutoScaleMode = AutoScaleMode.None;
+        DoubleBuffered = true;
+        Bounds = _captureScreenArea;
+        Region = surface.VisibleRegion.Clone();
+        Show();
+        Invalidate();
+    }
+
+    private void QueueTranslationClose()
+    {
+        if (_translationCloseQueued || _closing || IsDisposed || !IsHandleCreated) return;
+        _translationCloseQueued = true;
+        try { BeginInvoke((Action)Close); }
+        catch (InvalidOperationException) { }
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (_translationSurface == null) base.OnPaintBackground(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (_translationSurface != null)
+            e.Graphics.DrawImageUnscaled(_translationSurface.Image, Point.Empty);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (_translationSurface != null) QueueTranslationClose();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        if (e.Cancel) return;
+        _closing = true;
+        _cancellation.Cancel();
+        _translationClickMonitor?.Dispose();
     }
 
     private async void btnMusic_Click(object? sender, EventArgs e) => await IdentifyMusicAsync();
@@ -264,6 +358,7 @@ public partial class ActionToolbarForm : Form
     private void CollapseToast()
     {
         toastTimer.Stop();
+        if (_translationSurface != null) return;
         panelToast.Visible = false;
         ClientSize = new Size(ClientSize.Width, ToolbarOnlyHeight);
     }
@@ -278,12 +373,12 @@ public partial class ActionToolbarForm : Form
 
     private void ActionToolbarForm_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Escape && !_busy) Close();
+        if (e.KeyCode == Keys.Escape && (!_busy || _translationClickMonitor != null)) Close();
     }
 
     private void ActionToolbarForm_Deactivate(object? sender, EventArgs e)
     {
-        if (_keepOpenForChildWindow || _busy || IsDisposed) return;
+        if (_keepOpenForChildWindow || _busy || _closing || IsDisposed) return;
         BeginInvoke(Close);
     }
 }

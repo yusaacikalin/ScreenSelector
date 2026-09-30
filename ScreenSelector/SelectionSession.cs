@@ -105,7 +105,8 @@ internal sealed class SelectionSession : IDisposable
                     CopyPixelOperation.SourceCopy);
             }
 
-            using var actions = new ActionToolbarForm(crop, _settings, area, autoIdentifyMusic, selectionEnd);
+            using var actions = new ActionToolbarForm(crop, _settings, area, autoIdentifyMusic, selectionEnd,
+                captureArea);
             actions.ShowDialog();
         }
         catch (Exception ex)

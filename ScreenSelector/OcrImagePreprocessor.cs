@@ -8,6 +8,20 @@ internal sealed class OcrImageCandidate(Bitmap image, Rectangle contentBounds) :
 {
     public Bitmap Image { get; } = image;
     public Rectangle ContentBounds { get; } = contentBounds;
+
+    // OCR coordinates include preprocessing padding and possibly a different
+    // scale on each axis because the resized dimensions are rounded.
+    public RectangleF ToSourceBounds(RectangleF bounds, Size sourceSize)
+    {
+        var scaleX = (float)sourceSize.Width / ContentBounds.Width;
+        var scaleY = (float)sourceSize.Height / ContentBounds.Height;
+        return RectangleF.Intersect(new RectangleF(PointF.Empty, sourceSize),
+            RectangleF.FromLTRB((bounds.Left - ContentBounds.Left) * scaleX,
+                (bounds.Top - ContentBounds.Top) * scaleY,
+                (bounds.Right - ContentBounds.Left) * scaleX,
+                (bounds.Bottom - ContentBounds.Top) * scaleY));
+    }
+
     public void Dispose() => Image.Dispose();
 }
 
@@ -16,7 +30,7 @@ internal static class OcrImagePreprocessor
     private const int Padding = 24;
     private const int PreferredMaximumSide = 2400;
 
-    public static IReadOnlyList<OcrImageCandidate> CreateCandidates(Bitmap source)
+    public static IReadOnlyList<OcrImageCandidate> CreateCandidates(Bitmap source, bool includeInverted = false)
     {
         var scale = ChooseScale(source.Size);
         var scaledWidth = Math.Max(1, (int)Math.Round(source.Width * scale));
@@ -41,12 +55,27 @@ internal static class OcrImagePreprocessor
         var normalized = CreateNormalizedGrayscale(original, darkBackground, binary: false);
         var binary = CreateNormalizedGrayscale(original, darkBackground, binary: true);
         var contentBounds = new Rectangle(Padding, Padding, scaledWidth, scaledHeight);
-        return new[]
+        var candidates = new List<OcrImageCandidate>
         {
             new OcrImageCandidate(normalized, contentBounds),
             new OcrImageCandidate(binary, contentBounds),
             new OcrImageCandidate(original, contentBounds)
         };
+        if (includeInverted)
+        {
+            var inverted = new Bitmap(original.Width, original.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(inverted);
+            using var attributes = new ImageAttributes();
+            attributes.SetColorMatrix(new ColorMatrix(new[]
+            {
+                new[] { -1f, 0, 0, 0, 0 }, new[] { 0, -1f, 0, 0, 0 }, new[] { 0, 0, -1f, 0, 0 },
+                new[] { 0, 0, 0, 1f, 0 }, new[] { 1f, 1f, 1f, 0, 1f }
+            }));
+            graphics.DrawImage(original, new Rectangle(Point.Empty, original.Size), 0, 0,
+                original.Width, original.Height, GraphicsUnit.Pixel, attributes);
+            candidates.Add(new OcrImageCandidate(inverted, contentBounds));
+        }
+        return candidates;
     }
 
     private static float ChooseScale(Size size)

@@ -14,6 +14,21 @@ internal static class NativeMethods
     internal const uint KeyEventKeyUp = 0x0002;
     internal const uint InputKeyboard = 1;
 
+    internal delegate IntPtr HookCallback(int code, IntPtr message, IntPtr data);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(int hookId, HookCallback callback, IntPtr module, uint threadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern IntPtr GetModuleHandle(string? moduleName);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct Input
     {
