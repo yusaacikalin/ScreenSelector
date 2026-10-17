@@ -388,9 +388,6 @@ namespace ScreenSelector
                 if (currentSelection != selectedText)
                     throw new InvalidOperationException("Çeviri sırasında metin seçimi değişti; metin değiştirilmedi.");
                 await SelectedTextTranslation.ReplaceSelectionAsync(targetWindow, translated.Text);
-                var languageName = Languages.FirstOrDefault(language => language.Code == targetLanguage)?.Name
-                    ?? targetLanguage;
-                ShowTranslationNotice($"Seçili metin {languageName} diline çevrildi.");
             }
             catch (Exception ex)
             {
