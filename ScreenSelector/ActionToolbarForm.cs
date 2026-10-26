@@ -309,7 +309,7 @@ public partial class ActionToolbarForm : Form
         if (string.IsNullOrWhiteSpace(_settings.AudDToken))
         {
             ShowToast("API anahtarı gerekli",
-                "Şarkı tanıma için ana ekrandaki Şarkı tanıma bölümüne AudD API anahtarınızı girin.");
+                "Şarkı tanıma için Şarkı menüsüne AudD API anahtarınızı girin.");
             return;
         }
 

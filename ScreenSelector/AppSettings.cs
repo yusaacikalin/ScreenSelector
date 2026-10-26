@@ -27,6 +27,11 @@ public sealed class AppSettings
     public string SourceLanguage { get; set; } = "auto";
     public string TargetLanguage { get; set; } = "tr";
     public string AudDToken { get; set; } = string.Empty;
+    public Keys MusicHotkeyKey { get; set; } = Keys.F9;
+    public HotkeyModifiers MusicHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
+    public string SpotifyClientId { get; set; } = string.Empty;
+    public string SpotifyLocalPlaylistId { get; set; } = string.Empty;
+    public string SpotifyForeignPlaylistId { get; set; } = string.Empty;
 
     [JsonIgnore]
     public static string SettingsDirectory => Path.Combine(

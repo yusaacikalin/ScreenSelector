@@ -1,9 +1,11 @@
 using System.Text.Json;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace ScreenSelector;
 
-public sealed record MusicRecognitionResult(string Artist, string Title, string Album, string? Link);
+public sealed record MusicRecognitionResult(string Artist, string Title, string Album, string? Link,
+    string? SpotifyId = null, string? Isrc = null);
 
 internal static class MusicRecognitionService
 {
@@ -11,6 +13,20 @@ internal static class MusicRecognitionService
     {
         Timeout = TimeSpan.FromSeconds(45)
     };
+
+    internal static async Task<bool> HasOutputAudioAsync(CancellationToken cancellationToken)
+    {
+        using var devices = new MMDeviceEnumerator();
+        using var output = devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        // Skip the eight-second recognition recording when no player is active and output is silent.
+        for (var sample = 0; sample < 4; sample++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (output.AudioMeterInformation.MasterPeakValue > 0.00001F) return true;
+            if (sample < 3) await Task.Delay(100, cancellationToken);
+        }
+        return false;
+    }
 
     public static async Task<MusicRecognitionResult> IdentifyCurrentAudioAsync(string apiToken,
         TimeSpan duration, CancellationToken cancellationToken)
@@ -48,11 +64,19 @@ internal static class MusicRecognitionService
             if (!root.TryGetProperty("result", out var result) || result.ValueKind == JsonValueKind.Null)
                 throw new InvalidOperationException("Bu ses örneği için eşleşen bir şarkı bulunamadı. Müziğin sesini yükseltip tekrar deneyin.");
 
+            string? spotifyId = null;
+            string? isrc = null;
+            if (result.TryGetProperty("spotify", out var spotify) && spotify.ValueKind == JsonValueKind.Object)
+            {
+                if (spotify.TryGetProperty("id", out var id)) spotifyId = id.GetString();
+                if (spotify.TryGetProperty("external_ids", out var externalIds) && externalIds.TryGetProperty("isrc", out var recording))
+                    isrc = recording.GetString();
+            }
             return new MusicRecognitionResult(
                 GetString(result, "artist", "Bilinmeyen sanatçı"),
                 GetString(result, "title", "Bilinmeyen parça"),
                 GetString(result, "album", "Albüm bilgisi yok"),
-                result.TryGetProperty("song_link", out var link) ? link.GetString() : null);
+                result.TryGetProperty("song_link", out var link) ? link.GetString() : null, spotifyId, isrc);
         }
         finally
         {

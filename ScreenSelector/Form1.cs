@@ -6,7 +6,7 @@ namespace ScreenSelector
     {
         private const int HotkeyId = 0x5343;
         private const int TranslateHotkeyId = 0x5344;
-        private enum ShortcutCapture { None, Selection, Translation }
+        private enum ShortcutCapture { None, Selection, Translation, Music }
         private readonly bool _launchMinimized;
         private readonly Icon _applicationIcon;
         private AppSettings _settings = new();
@@ -53,7 +53,7 @@ namespace ScreenSelector
             toolTip.SetToolTip(btnSelectNow, "Atanmış kısayol ile aynı seçim ekranını açar.");
             toolTip.SetToolTip(btnSwapLanguages, "Kaynak ve hedef dili değiştir");
             toolTip.SetToolTip(btnHeaderWindowMinimize, "Görev çubuğuna küçült");
-            toolTip.SetToolTip(btnHeaderClose, "Uygulamayı kapat");
+            toolTip.SetToolTip(btnHeaderClose, "Bildirim alanına küçült");
         }
 
         private static Icon LoadApplicationIcon()
@@ -74,10 +74,14 @@ namespace ScreenSelector
             var sidebarText = Color.FromArgb(174, 181, 201);
             var sidebarBackground = Color.FromArgb(20, 24, 38);
 
-            ConfigureNavButton(btnNavHome, "⌂  Genel bakış", 126, Color.White, Color.FromArgb(45, 51, 77));
-            ConfigureNavButton(btnNavSettings, "⚙  Ayarlar", 178, sidebarText, sidebarBackground);
-            ConfigureNavButton(btnNavTranslation, "文  Çeviri", 230, sidebarText, sidebarBackground);
-            ConfigureNavButton(btnNavMusic, "♫  Şarkı tanıma", 282, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavSelection, "▣  Seçim", 126, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavTranslation, "文  Çeviri", 178, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavMusic, "♫  Şarkı", 230, sidebarText, sidebarBackground);
+            ConfigureNavButton(btnNavSettings, "⚙  Ayarlar", 282, sidebarText, sidebarBackground);
+            btnNavSelection.TabIndex = 0;
+            btnNavTranslation.TabIndex = 1;
+            btnNavMusic.TabIndex = 2;
+            btnNavSettings.TabIndex = 3;
 
             StyleCardTitle(lblHotkeyTitle, "Seçim kısayolu", 28, 20);
             StyleFieldLabel(lblShortcutLabel, "Etkin kısayol", 345, 65);
@@ -114,6 +118,9 @@ namespace ScreenSelector
             StyleDescription(lblMusicDescription,
                 "AudD erişim anahtarınızı girerek bilgisayarınızda çalan parçayı bulun.", 28, 53);
             StyleFieldLabel(lblToken, "AudD API anahtarı", 28, 91);
+            ConfigureMusicPage();
+
+            btnNavSelection_Click(this, EventArgs.Empty);
         }
 
         private static void ConfigureNavButton(Button button, string text, int top, Color foreColor, Color backColor)
@@ -206,9 +213,8 @@ namespace ScreenSelector
             cardTranslateShortcut.Size = new Size(682, 213);
             cardTranslateShortcut.Margin = new Padding(3, 3, 3, 14);
             cardTranslateShortcut.Name = nameof(cardTranslateShortcut);
-            contentFlow.Controls.Add(cardTranslateShortcut);
-            contentFlow.Controls.SetChildIndex(cardTranslateShortcut,
-                contentFlow.Controls.GetChildIndex(cardTranslation) + 1);
+            cardTranslateShortcut.TabIndex = 1;
+            pageTranslation.Controls.Add(cardTranslateShortcut);
 
             var title = new Label();
             StyleCardTitle(title, "Seçili metni yerinde çevir", 28, 20);
@@ -289,11 +295,15 @@ namespace ScreenSelector
             txtAudDToken.Text = _settings.AudDToken;
             txtShortcut.Text = FormatShortcut(_settings.HotkeyModifiers, _settings.HotkeyKey);
             txtTranslateShortcut.Text = FormatShortcut(_settings.TranslateHotkeyModifiers, _settings.TranslateHotkeyKey);
+            LoadMusicSettings();
             _loadingSettings = false;
             _settingsLoaded = true;
 
             RegisterCurrentHotkey(showError: true);
             RegisterTranslateHotkey(showError: true);
+            RegisterMusicHotkey();
+            if (_spotifyConnection?.HasSavedConnection == true)
+                BeginInvoke((Action)(async () => await RefreshPlaylistsAsync()));
             if (_launchMinimized)
             {
                 BeginInvoke(MinimizeToTray);
@@ -309,11 +319,19 @@ namespace ScreenSelector
             {
                 RegisterCurrentHotkey(showError: false);
                 RegisterTranslateHotkey(showError: false);
+                RegisterMusicHotkey();
             }
         }
 
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == NativeMethods.WmHotkey && _capturingShortcut != ShortcutCapture.None)
+                return;
+            if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == MusicHotkeyId)
+            {
+                BeginInvoke(StartMusicCapture);
+                return;
+            }
             if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
                 BeginInvoke(StartSelection);
@@ -360,7 +378,7 @@ namespace ScreenSelector
 
         private void UpdateHotkeyStatus()
         {
-            var bothRegistered = _selectionHotkeyRegistered && _translationHotkeyRegistered;
+            var bothRegistered = _selectionHotkeyRegistered && _translationHotkeyRegistered && _musicHotkeyRegistered;
             lblReady.Text = bothRegistered ? "Kısayollar dinleniyor" : "Kısayol kullanılamıyor";
             lblReadyDot.ForeColor = bothRegistered ? Color.FromArgb(75, 220, 160) : Color.FromArgb(248, 104, 116);
         }
@@ -466,6 +484,7 @@ namespace ScreenSelector
 
         private void btnChangeShortcut_Click(object? sender, EventArgs e)
         {
+            EndShortcutCapture();
             _capturingShortcut = ShortcutCapture.Selection;
             txtShortcut.Text = "Yeni kısayola basın…";
             txtShortcut.BackColor = Color.FromArgb(255, 250, 224);
@@ -476,6 +495,7 @@ namespace ScreenSelector
 
         private void btnChangeTranslateShortcut_Click(object? sender, EventArgs e)
         {
+            EndShortcutCapture();
             _capturingShortcut = ShortcutCapture.Translation;
             txtTranslateShortcut.Text = "Yeni kısayola basın…";
             txtTranslateShortcut.BackColor = Color.FromArgb(255, 250, 224);
@@ -496,6 +516,32 @@ namespace ScreenSelector
             if (e.Control) modifiers |= HotkeyModifiers.Control;
             if (e.Shift) modifiers |= HotkeyModifiers.Shift;
             if (e.Alt) modifiers |= HotkeyModifiers.Alt;
+            if ((NativeMethods.GetAsyncKeyState((int)Keys.LWin) & 0x8000) != 0 ||
+                (NativeMethods.GetAsyncKeyState((int)Keys.RWin) & 0x8000) != 0) modifiers |= HotkeyModifiers.Win;
+            if (_capturingShortcut == ShortcutCapture.Music)
+            {
+                if ((e.KeyCode == _settings.HotkeyKey && modifiers == _settings.HotkeyModifiers) ||
+                    (e.KeyCode == _settings.TranslateHotkeyKey && modifiers == _settings.TranslateHotkeyModifiers))
+                {
+                    _musicShortcutStatus.Text = "Bu kısayol uygulamada başka bir işlem için kullanılıyor.";
+                    return;
+                }
+                var previousMusicKey = _settings.MusicHotkeyKey;
+                var previousMusicModifiers = _settings.MusicHotkeyModifiers;
+                _settings.MusicHotkeyKey = e.KeyCode;
+                _settings.MusicHotkeyModifiers = modifiers;
+                if (!RegisterMusicHotkey())
+                {
+                    _settings.MusicHotkeyKey = previousMusicKey;
+                    _settings.MusicHotkeyModifiers = previousMusicModifiers;
+                    RegisterMusicHotkey();
+                    _musicShortcutStatus.Text = "Bu kısayol kullanımda; başka bir tuş birleşimi deneyin.";
+                    return;
+                }
+                SaveSettings();
+                EndShortcutCapture();
+                return;
+            }
             if (_capturingShortcut == ShortcutCapture.Translation)
             {
                 var modifierCount = (e.Control ? 1 : 0) + (e.Shift ? 1 : 0) + (e.Alt ? 1 : 0);
@@ -548,6 +594,7 @@ namespace ScreenSelector
             txtTranslateShortcut.BackColor = Color.FromArgb(247, 248, 252);
             lblTranslateShortcutState.Text = "Kaynak dil otomatik algılanır. Tek tuş veya bir değiştirici + bir tuş atayın.";
             btnChangeTranslateShortcut.Text = "Kısayolu değiştir";
+            ResetMusicShortcutDisplay();
         }
 
         private static string FormatShortcut(HotkeyModifiers modifiers, Keys key)
@@ -620,22 +667,47 @@ namespace ScreenSelector
         private void linkAudD_LinkClicked(object? sender, LinkLabelLinkClickedEventArgs e) =>
             Process.Start(new ProcessStartInfo("https://audd.io/") { UseShellExecute = true });
 
-        private void ScrollTo(Control control, string title)
+        private void ShowPage(FlowLayoutPanel page, Button navigationButton, string title, string hint)
         {
-            contentFlow.ScrollControlIntoView(control);
+            // Leaving a shortcut editor must not keep capturing keys on another page.
+            if (_capturingShortcut != ShortcutCapture.None) EndShortcutCapture();
+
+            panelPages.SuspendLayout();
+            foreach (Control candidate in panelPages.Controls)
+                candidate.Visible = candidate == page;
+            page.BringToFront();
+            panelPages.ResumeLayout(true);
+
+            foreach (var button in new[] { btnNavSelection, btnNavTranslation, btnNavMusic, btnNavSettings })
+            {
+                var selected = button == navigationButton;
+                button.BackColor = selected ? Color.FromArgb(45, 51, 77) : Color.FromArgb(20, 24, 38);
+                button.ForeColor = selected ? Color.White : Color.FromArgb(174, 181, 201);
+                button.FlatAppearance.MouseOverBackColor = selected
+                    ? Color.FromArgb(53, 59, 87) : Color.FromArgb(35, 41, 61);
+                button.AccessibleDescription = selected ? "Açık menü" : "Menüyü aç";
+            }
             lblHeaderTitle.Text = title;
+            lblHeaderHint.Text = hint;
         }
 
-        private void btnNavHome_Click(object? sender, EventArgs e) => ScrollTo(cardIntro, "Genel bakış");
-        private void btnNavSettings_Click(object? sender, EventArgs e) => ScrollTo(cardHotkey, "Ayarlar");
-        private void btnNavTranslation_Click(object? sender, EventArgs e) => ScrollTo(cardTranslation, "Çeviri");
-        private void btnNavMusic_Click(object? sender, EventArgs e) => ScrollTo(cardMusic, "Şarkı tanıma");
+        private void btnNavSelection_Click(object? sender, EventArgs e) =>
+            ShowPage(pageSelection, btnNavSelection, "Seçim", "Alan seçimini ve seçim kısayolunuzu yönetin.");
+        private void btnNavTranslation_Click(object? sender, EventArgs e) =>
+            ShowPage(pageTranslation, btnNavTranslation, "Çeviri", "Çeviri dillerini ve metin çevirisi kısayolunu ayarlayın.");
+        private void btnNavMusic_Click(object? sender, EventArgs e)
+        {
+            ShowPage(pageMusic, btnNavMusic, "Şarkı", "Kısayolla yakalayın; Yerli / Yabancı listelerine ekleyin ve işlem günlüğünü izleyin.");
+            pageMusic.AutoScrollPosition = Point.Empty;
+            _musicShortcut.Focus();
+        }
+        private void btnNavSettings_Click(object? sender, EventArgs e) =>
+            ShowPage(pageSettings, btnNavSettings, "Ayarlar", "Windows başlangıç tercihlerinizi yönetin.");
         private void btnSelectNow_Click(object? sender, EventArgs e) => BeginInvoke(StartSelection);
         private void menuSelect_Click(object? sender, EventArgs e) => BeginInvoke(StartSelection);
-        private void btnHeaderMinimize_Click(object? sender, EventArgs e) => MinimizeToTray();
         private void btnHeaderWindowMinimize_Click(object? sender, EventArgs e) =>
             WindowState = FormWindowState.Minimized;
-        private void btnHeaderClose_Click(object? sender, EventArgs e) { _allowExit = true; Close(); }
+        private void btnHeaderClose_Click(object? sender, EventArgs e) => MinimizeToTray();
         private void notifyIcon_DoubleClick(object? sender, EventArgs e) => ShowMainWindow();
         private void menuOpen_Click(object? sender, EventArgs e) => ShowMainWindow();
 
@@ -659,6 +731,7 @@ namespace ScreenSelector
             }
             NativeMethods.UnregisterHotKey(Handle, HotkeyId);
             NativeMethods.UnregisterHotKey(Handle, TranslateHotkeyId);
+            CloseMusicServices();
             _selectionSession?.Dispose();
             _selectionSession = null;
             notifyIcon.Visible = false;

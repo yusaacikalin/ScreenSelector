@@ -9,6 +9,24 @@ internal static class Program
         try
         {
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Application.EnableVisualStyles();
+            if (args.Contains("--media-readonly"))
+            {
+                var song = new CurrentSongService(() => "").CaptureAsync(CancellationToken.None).GetAwaiter().GetResult();
+                Console.WriteLine($"Windows media: {song.Artist} - {song.Title}; source: {song.Source}");
+                return 0;
+            }
+            if (args.Contains("--spotify-readonly"))
+            {
+                MusicChecks.CheckLiveSpotifyAsync().GetAwaiter().GetResult();
+                return 0;
+            }
+            if (!args.Contains("--skip-music")) MusicChecks.RunAsync().GetAwaiter().GetResult();
+            if (args.Contains("--music"))
+            {
+                MusicChecks.RenderPreviews();
+                return 0;
+            }
             CheckCoordinateMapping();
             CheckWordGrouping();
             CheckRendering();
@@ -17,7 +35,7 @@ internal static class Program
             CheckTranslationResponses();
             CheckLineTranslationAsync().GetAwaiter().GetResult();
             CheckOcrAsync().GetAwaiter().GetResult();
-            CheckMenuScreenshotAsync(args.Length > 0 ? args[0] :
+            CheckMenuScreenshotAsync(args.FirstOrDefault(arg => !arg.StartsWith("--")) ??
                     Path.Combine(AppContext.BaseDirectory, "Fixtures", "menu-toolbar.png"))
                 .GetAwaiter().GetResult();
             CheckWindowLifecycle();

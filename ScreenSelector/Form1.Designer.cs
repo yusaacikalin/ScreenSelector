@@ -23,11 +23,15 @@ namespace ScreenSelector
             btnNavMusic = new Button();
             btnNavTranslation = new Button();
             btnNavSettings = new Button();
-            btnNavHome = new Button();
+            btnNavSelection = new Button();
             lblBrandSubtitle = new Label();
             lblBrand = new Label();
             panelMain = new Panel();
-            contentFlow = new FlowLayoutPanel();
+            panelPages = new Panel();
+            pageSelection = new FlowLayoutPanel();
+            pageTranslation = new FlowLayoutPanel();
+            pageMusic = new FlowLayoutPanel();
+            pageSettings = new FlowLayoutPanel();
             cardIntro = new Panel();
             btnSelectNow = new Button();
             lblIntroText = new Label();
@@ -70,7 +74,6 @@ namespace ScreenSelector
             panelHeader = new Panel();
             btnHeaderClose = new Button();
             btnHeaderWindowMinimize = new Button();
-            btnHeaderMinimize = new Button();
             lblHeaderHint = new Label();
             lblHeaderTitle = new Label();
             lblFeatureMusicDescription = new Label();
@@ -92,7 +95,11 @@ namespace ScreenSelector
             panelSidebar.SuspendLayout();
             panelReady.SuspendLayout();
             panelMain.SuspendLayout();
-            contentFlow.SuspendLayout();
+            panelPages.SuspendLayout();
+            pageSelection.SuspendLayout();
+            pageTranslation.SuspendLayout();
+            pageMusic.SuspendLayout();
+            pageSettings.SuspendLayout();
             cardIntro.SuspendLayout();
             cardHotkey.SuspendLayout();
             cardFeatures.SuspendLayout();
@@ -111,7 +118,7 @@ namespace ScreenSelector
             panelSidebar.Controls.Add(btnNavMusic);
             panelSidebar.Controls.Add(btnNavTranslation);
             panelSidebar.Controls.Add(btnNavSettings);
-            panelSidebar.Controls.Add(btnNavHome);
+            panelSidebar.Controls.Add(btnNavSelection);
             panelSidebar.Controls.Add(lblBrandSubtitle);
             panelSidebar.Controls.Add(lblBrand);
             panelSidebar.Dock = DockStyle.Left;
@@ -190,13 +197,13 @@ namespace ScreenSelector
             btnNavSettings.TabIndex = 4;
             btnNavSettings.Click += btnNavSettings_Click;
             // 
-            // btnNavHome
+            // btnNavSelection
             // 
-            btnNavHome.Location = new Point(0, 0);
-            btnNavHome.Name = "btnNavHome";
-            btnNavHome.Size = new Size(75, 23);
-            btnNavHome.TabIndex = 5;
-            btnNavHome.Click += btnNavHome_Click;
+            btnNavSelection.Location = new Point(0, 0);
+            btnNavSelection.Name = "btnNavSelection";
+            btnNavSelection.Size = new Size(75, 23);
+            btnNavSelection.TabIndex = 0;
+            btnNavSelection.Click += btnNavSelection_Click;
             // 
             // lblBrandSubtitle
             // 
@@ -223,7 +230,7 @@ namespace ScreenSelector
             // panelMain
             // 
             panelMain.BackColor = Color.FromArgb(244, 246, 251);
-            panelMain.Controls.Add(contentFlow);
+            panelMain.Controls.Add(panelPages);
             panelMain.Controls.Add(panelHeader);
             panelMain.Dock = DockStyle.Fill;
             panelMain.Location = new Point(226, 0);
@@ -231,25 +238,71 @@ namespace ScreenSelector
             panelMain.Size = new Size(758, 741);
             panelMain.TabIndex = 1;
             // 
-            // contentFlow
-            // 
-            contentFlow.AutoScroll = true;
-            contentFlow.BackColor = Color.FromArgb(244, 246, 251);
-            contentFlow.Controls.Add(cardIntro);
-            contentFlow.Controls.Add(cardHotkey);
-            contentFlow.Controls.Add(cardFeatures);
-            contentFlow.Controls.Add(cardTranslation);
-            contentFlow.Controls.Add(cardStartup);
-            contentFlow.Controls.Add(cardMusic);
-            contentFlow.Controls.Add(lblFooter);
-            contentFlow.Dock = DockStyle.Fill;
-            contentFlow.FlowDirection = FlowDirection.TopDown;
-            contentFlow.Location = new Point(0, 91);
-            contentFlow.Name = "contentFlow";
-            contentFlow.Padding = new Padding(24, 14, 24, 28);
-            contentFlow.Size = new Size(758, 650);
-            contentFlow.TabIndex = 0;
-            contentFlow.WrapContents = false;
+            // panelPages
+            //
+            panelPages.Controls.Add(pageSelection);
+            panelPages.Controls.Add(pageTranslation);
+            panelPages.Controls.Add(pageMusic);
+            panelPages.Controls.Add(pageSettings);
+            panelPages.Dock = DockStyle.Fill;
+            panelPages.Location = new Point(0, 91);
+            panelPages.Name = "panelPages";
+            panelPages.Size = new Size(758, 650);
+            panelPages.TabIndex = 0;
+            //
+            // pageSelection
+            //
+            pageSelection.AutoScroll = true;
+            pageSelection.Controls.Add(cardIntro);
+            pageSelection.Controls.Add(cardHotkey);
+            pageSelection.Controls.Add(cardFeatures);
+            pageSelection.Controls.Add(lblFooter);
+            pageSelection.Dock = DockStyle.Fill;
+            pageSelection.FlowDirection = FlowDirection.TopDown;
+            pageSelection.Name = "pageSelection";
+            pageSelection.Padding = new Padding(24, 14, 24, 28);
+            pageSelection.Size = new Size(758, 650);
+            pageSelection.TabIndex = 0;
+            pageSelection.WrapContents = false;
+            //
+            // pageTranslation
+            //
+            pageTranslation.AutoScroll = true;
+            pageTranslation.Controls.Add(cardTranslation);
+            pageTranslation.Dock = DockStyle.Fill;
+            pageTranslation.FlowDirection = FlowDirection.TopDown;
+            pageTranslation.Name = "pageTranslation";
+            pageTranslation.Padding = new Padding(24, 14, 24, 28);
+            pageTranslation.Size = new Size(758, 650);
+            pageTranslation.TabIndex = 1;
+            pageTranslation.Visible = false;
+            pageTranslation.WrapContents = false;
+            //
+            // pageMusic
+            //
+            pageMusic.AutoScroll = true;
+            pageMusic.Controls.Add(cardMusic);
+            pageMusic.Dock = DockStyle.Fill;
+            pageMusic.FlowDirection = FlowDirection.TopDown;
+            pageMusic.Name = "pageMusic";
+            pageMusic.Padding = new Padding(24, 14, 24, 28);
+            pageMusic.Size = new Size(758, 650);
+            pageMusic.TabIndex = 2;
+            pageMusic.Visible = false;
+            pageMusic.WrapContents = false;
+            //
+            // pageSettings
+            //
+            pageSettings.AutoScroll = true;
+            pageSettings.Controls.Add(cardStartup);
+            pageSettings.Dock = DockStyle.Fill;
+            pageSettings.FlowDirection = FlowDirection.TopDown;
+            pageSettings.Name = "pageSettings";
+            pageSettings.Padding = new Padding(24, 14, 24, 28);
+            pageSettings.Size = new Size(758, 650);
+            pageSettings.TabIndex = 3;
+            pageSettings.Visible = false;
+            pageSettings.WrapContents = false;
             // 
             // cardIntro
             // 
@@ -444,7 +497,7 @@ namespace ScreenSelector
             cardTranslation.Margin = new Padding(3, 3, 3, 14);
             cardTranslation.Name = "cardTranslation";
             cardTranslation.Size = new Size(682, 190);
-            cardTranslation.TabIndex = 3;
+            cardTranslation.TabIndex = 0;
             // 
             // lblTranslationHint
             // 
@@ -638,7 +691,7 @@ namespace ScreenSelector
             lblFooter.Name = "lblFooter";
             lblFooter.Size = new Size(682, 38);
             lblFooter.TabIndex = 6;
-            lblFooter.Text = "İpucu: Alan seçimini Esc tuşuyla iptal edebilirsiniz.\r\nScreenSelector görüntüleri bilgisayarınızda kalıcı olarak saklamaz.";
+            lblFooter.Text = "İpucu: Alan seçimini Esc tuşuyla iptal edebilirsiniz.";
             lblFooter.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // panelHeader
@@ -646,7 +699,6 @@ namespace ScreenSelector
             panelHeader.BackColor = Color.White;
             panelHeader.Controls.Add(btnHeaderClose);
             panelHeader.Controls.Add(btnHeaderWindowMinimize);
-            panelHeader.Controls.Add(btnHeaderMinimize);
             panelHeader.Controls.Add(lblHeaderHint);
             panelHeader.Controls.Add(lblHeaderTitle);
             panelHeader.Dock = DockStyle.Top;
@@ -667,7 +719,7 @@ namespace ScreenSelector
             btnHeaderClose.Location = new Point(693, 29);
             btnHeaderClose.Name = "btnHeaderClose";
             btnHeaderClose.Size = new Size(36, 34);
-            btnHeaderClose.TabIndex = 2;
+            btnHeaderClose.TabIndex = 1;
             btnHeaderClose.Text = "×";
             btnHeaderClose.UseVisualStyleBackColor = false;
             btnHeaderClose.Click += btnHeaderClose_Click;
@@ -684,27 +736,10 @@ namespace ScreenSelector
             btnHeaderWindowMinimize.Location = new Point(651, 29);
             btnHeaderWindowMinimize.Name = "btnHeaderWindowMinimize";
             btnHeaderWindowMinimize.Size = new Size(36, 34);
-            btnHeaderWindowMinimize.TabIndex = 1;
+            btnHeaderWindowMinimize.TabIndex = 0;
             btnHeaderWindowMinimize.Text = "−";
             btnHeaderWindowMinimize.UseVisualStyleBackColor = false;
             btnHeaderWindowMinimize.Click += btnHeaderWindowMinimize_Click;
-            // 
-            // btnHeaderMinimize
-            // 
-            btnHeaderMinimize.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnHeaderMinimize.BackColor = Color.FromArgb(246, 247, 251);
-            btnHeaderMinimize.Cursor = Cursors.Hand;
-            btnHeaderMinimize.FlatAppearance.BorderSize = 0;
-            btnHeaderMinimize.FlatStyle = FlatStyle.Flat;
-            btnHeaderMinimize.Font = new Font("Segoe UI Semibold", 9F);
-            btnHeaderMinimize.ForeColor = Color.FromArgb(69, 78, 99);
-            btnHeaderMinimize.Location = new Point(520, 29);
-            btnHeaderMinimize.Name = "btnHeaderMinimize";
-            btnHeaderMinimize.Size = new Size(125, 34);
-            btnHeaderMinimize.TabIndex = 0;
-            btnHeaderMinimize.Text = "Bildirim alanına al";
-            btnHeaderMinimize.UseVisualStyleBackColor = false;
-            btnHeaderMinimize.Click += btnHeaderMinimize_Click;
             // 
             // lblHeaderHint
             // 
@@ -726,7 +761,7 @@ namespace ScreenSelector
             lblHeaderTitle.Name = "lblHeaderTitle";
             lblHeaderTitle.Size = new Size(140, 32);
             lblHeaderTitle.TabIndex = 2;
-            lblHeaderTitle.Text = "Genel bakış";
+            lblHeaderTitle.Text = "Seçim";
             // 
             // lblFeatureMusicDescription
             // 
@@ -853,7 +888,11 @@ namespace ScreenSelector
             panelReady.ResumeLayout(false);
             panelReady.PerformLayout();
             panelMain.ResumeLayout(false);
-            contentFlow.ResumeLayout(false);
+            panelPages.ResumeLayout(false);
+            pageSelection.ResumeLayout(false);
+            pageTranslation.ResumeLayout(false);
+            pageMusic.ResumeLayout(false);
+            pageSettings.ResumeLayout(false);
             cardIntro.ResumeLayout(false);
             cardIntro.PerformLayout();
             cardHotkey.ResumeLayout(false);
@@ -872,7 +911,7 @@ namespace ScreenSelector
 
         #endregion
 
-        private Panel panelSidebar, panelReady, panelMain, panelHeader, cardIntro, cardHotkey, cardFeatures;
+        private Panel panelSidebar, panelReady, panelMain, panelHeader, panelPages, cardIntro, cardHotkey, cardFeatures;
         private Panel featureText, featureTranslate, featureMusic, cardTranslation, cardStartup, cardMusic;
         private Label lblVersion, lblReady, lblReadyDot, lblBrandSubtitle, lblBrand, lblHeaderTitle, lblHeaderHint;
         private Label lblIntroText, lblIntroTitle, lblHotkeyState, lblShortcutLabel, lblHotkeyDescription, lblHotkeyTitle;
@@ -881,13 +920,13 @@ namespace ScreenSelector
         private Label lblFeatureTextDescription, lblFeatureTextTitle, lblFeatureTextIcon, lblFeaturesDescription, lblFeaturesTitle;
         private Label lblTranslationHint, lblTargetLanguage, lblSourceLanguage, lblTranslationDescription, lblTranslationTitle;
         private Label lblStartupDescription, lblStartupTitle, lblTokenHint, lblToken, lblMusicDescription, lblMusicTitle, lblFooter;
-        private Button btnNavMusic, btnNavTranslation, btnNavSettings, btnNavHome, btnHeaderMinimize, btnHeaderWindowMinimize, btnHeaderClose, btnSelectNow;
+        private Button btnNavMusic, btnNavTranslation, btnNavSettings, btnNavSelection, btnHeaderWindowMinimize, btnHeaderClose, btnSelectNow;
         private Button btnChangeShortcut, btnSwapLanguages;
         private TextBox txtShortcut, txtAudDToken;
         private ComboBox cmbTargetLanguage, cmbSourceLanguage;
         private CheckBox chkStartMinimized, chkStartWithWindows;
         private LinkLabel linkAudD;
-        private FlowLayoutPanel contentFlow;
+        private FlowLayoutPanel pageSelection, pageTranslation, pageMusic, pageSettings;
         private NotifyIcon notifyIcon;
         private ContextMenuStrip trayMenu;
         private ToolStripMenuItem menuOpen, menuSelect, menuExit;
