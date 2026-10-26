@@ -17,9 +17,13 @@ public partial class Form1
     private readonly Button _refreshPlaylists = new();
     private readonly Button _disconnectSpotify = new();
     private readonly DataGridView _musicGrid = new();
-    private readonly Button _deleteMusicRecord = new();
-    private readonly Button _holdMusicRecord = new();
-    private readonly Button _markMusicAdded = new();
+    private readonly Button _deleteMusicRecord = new MusicHistoryButton("\uE74D");
+    private readonly Button _holdMusicRecord = new MusicHistoryButton("\uE769");
+    private readonly Button _markMusicAdded = new MusicHistoryButton("\uE73E");
+    private readonly Button _searchMusicRecord = new MusicHistoryButton("\uE721");
+    private readonly Button _retryMusicRecord = new MusicHistoryButton("\uE72C");
+    private readonly Button _chooseLocalMusic = new MusicHistoryButton("\uE707");
+    private readonly Button _chooseForeignMusic = new MusicHistoryButton("\uE774");
     private readonly TextBox _musicDetails = new();
     private readonly Label _journalStatus = new();
     private MusicHistoryForm? _musicHistoryForm;
@@ -58,66 +62,7 @@ public partial class Form1
         _musicShortcutStatus.Font = new Font("Segoe UI", 8);
         shortcut.Controls.Add(_musicShortcutStatus);
 
-        var history = MusicCard("Şarkı günlüğü", 470);
-        _journalStatus.SetBounds(28, 53, 625, 20);
-        _journalStatus.Font = new Font("Segoe UI", 8.5F);
-        _journalStatus.ForeColor = Color.FromArgb(100, 110, 130);
-        _journalStatus.Text = "Her şarkının yakalama, Spotify ve listeye ekleme durumu burada tutulur.";
-        history.Controls.Add(_journalStatus);
-        _musicGrid.SetBounds(28, 80, 483, 280);
-        _musicGrid.ReadOnly = true;
-        _musicGrid.AllowUserToAddRows = false;
-        _musicGrid.AllowUserToDeleteRows = false;
-        _musicGrid.AllowUserToResizeRows = false;
-        _musicGrid.MultiSelect = false;
-        _musicGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _musicGrid.RowHeadersVisible = false;
-        _musicGrid.BackgroundColor = Color.White;
-        _musicGrid.BorderStyle = BorderStyle.None;
-        _musicGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        _musicGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
-        _musicGrid.DefaultCellStyle.Font = new Font("Segoe UI", 8.5F);
-        _musicGrid.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
-        _musicGrid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(234, 231, 255);
-        _musicGrid.DefaultCellStyle.SelectionForeColor = Color.FromArgb(35, 42, 62);
-        foreach (var column in new[] { ("Saat", 55F), ("Sanatçı", 85F), ("Şarkı", 110F), ("Tür", 55F), ("Spotify", 65F), ("Liste / durum", 135F) })
-        {
-            var index = _musicGrid.Columns.Add(column.Item1, column.Item1);
-            _musicGrid.Columns[index].FillWeight = column.Item2;
-            _musicGrid.Columns[index].SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
-        _musicGrid.SelectionChanged += (_, _) => UpdateMusicDetails();
-        history.Controls.Add(_musicGrid);
-        MusicButton(history, _deleteMusicRecord, "Seçiliyi sil", new Rectangle(523, 80, 130, 32), (_, _) => DeleteSelectedMusicRecord());
-        _deleteMusicRecord.AccessibleDescription = "Seçili kaydı yalnızca yerel geçmişten siler. Spotify listesindeki şarkı korunur.";
-        _deleteMusicRecord.Enabled = false;
-        MusicButton(history, new Button(), "Yerli seç", new Rectangle(523, 120, 130, 32), async (_, _) => await ChooseSongCategoryAsync(SongCategory.Local));
-        MusicButton(history, new Button(), "Yabancı seç", new Rectangle(523, 160, 130, 32), async (_, _) => await ChooseSongCategoryAsync(SongCategory.Foreign));
-        MusicButton(history, new Button(), "Yeniden dene", new Rectangle(523, 200, 130, 32), async (_, _) =>
-        { if (SelectedMusicJob() is { } job && !job.IsRunning && job.Stage is not (MusicStage.Added or MusicStage.AlreadyExists)) await RunMusicJobAsync(job); });
-        MusicButton(history, _holdMusicRecord, "Beklemeye al", new Rectangle(523, 240, 130, 32), (_, _) => SetSelectedMusicStatus(false));
-        _holdMusicRecord.AccessibleDescription = "Seçili kaydı beklemeye alır ve yeşil işaretini kaldırır.";
-        _holdMusicRecord.Enabled = false;
-        MusicButton(history, _markMusicAdded, "Eklendi", new Rectangle(523, 280, 130, 32), (_, _) => SetSelectedMusicStatus(true));
-        _markMusicAdded.AccessibleDescription = "Seçili kaydı günlükte eklendi olarak işaretler ve yeşil yapar.";
-        _markMusicAdded.Enabled = false;
-        MusicButton(history, new Button(), "Elle ara ↗", new Rectangle(523, 320, 130, 32), (_, _) =>
-        {
-            if (SelectedMusicJob()?.Song is not { } song) return;
-            OpenSpotifySearch(song);
-        });
-        ConfigureMusicTextBox(_musicDetails, new Rectangle(28, 370, 625, 80));
-        _musicDetails.Multiline = true;
-        _musicDetails.ScrollBars = ScrollBars.Vertical;
-        _musicDetails.ReadOnly = true;
-        _musicDetails.Font = new Font("Segoe UI", 8.5F);
-        history.Controls.Add(_musicDetails);
-        _musicGrid.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        _musicDetails.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        _journalStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        foreach (var button in history.Controls.OfType<Button>())
-            button.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _musicHistoryForm = new MusicHistoryForm(history) { Owner = this, Icon = Icon };
+        ConfigureMusicHistory();
 
         var historyLauncher = MusicCard("Şarkı günlüğü", 112);
         MusicLabel(historyLauncher, "Yakalanan şarkıları ve işlem geçmişini ayrı pencerede görüntüleyin.", 28, 55, 390, 42);
@@ -162,6 +107,11 @@ public partial class Form1
             combo.DropDownStyle = ComboBoxStyle.DropDownList;
             combo.SetBounds(x, 191, 295, 28);
             combo.DisplayMember = nameof(SpotifyPlaylist.Name);
+            combo.MouseWheel += (_, e) =>
+            {
+                if (!combo.DroppedDown && e is HandledMouseEventArgs wheel)
+                    wheel.Handled = true;
+            };
             combo.SelectedIndexChanged += (_, _) => SavePlaylistSelection();
             spotify.Controls.Add(combo);
         }
@@ -368,6 +318,9 @@ public partial class Form1
         var job = SelectedMusicJob();
         _deleteMusicRecord.Enabled = job is not null && !job.IsRunning;
         _holdMusicRecord.Enabled = _markMusicAdded.Enabled = job?.Song is not null && !job.IsRunning;
+        _searchMusicRecord.Enabled = job?.Song is not null;
+        _retryMusicRecord.Enabled = _chooseLocalMusic.Enabled = _chooseForeignMusic.Enabled =
+            job?.Song is not null && !job.IsRunning && job.Stage is not (MusicStage.Added or MusicStage.AlreadyExists);
         if (job is null) { _musicDetails.Clear(); return; }
         _musicDetails.Text = (job.Song is null ? "" : $"Kaynak: {job.Song.Source}\r\n") +
             string.Join("\r\n", job.Events.Select(e => $"{e.Time:HH:mm:ss} · {e.Message}"));
@@ -495,7 +448,7 @@ public partial class Form1
         {
             var uri = "spotify:search:" + Uri.EscapeDataString(song.Artist + " " + song.Title);
             Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
-            _journalStatus.Text = "Arama Spotify masaüstü uygulamasında açıldı.";
+            _journalStatus.Text = $"Spotify'da arama açıldı: {song.Artist} — {song.Title}";
         }
         catch { _journalStatus.Text = "Spotify masaüstü uygulaması açılamadı. Spotify'ın bilgisayarda kurulu olduğunu kontrol edin."; }
     }
