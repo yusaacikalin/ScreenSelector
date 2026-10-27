@@ -36,7 +36,7 @@ internal sealed class MusicToastForm : Form
         AutoScaleDimensions = new SizeF(7, 15);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9F);
-        // About 25% narrower and 80% shorter than the original 486 x 218 toast.
+        // Start compact; longer text can grow the toast without crowding the actions.
         ClientSize = new Size(365, 44);
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -56,8 +56,8 @@ internal sealed class MusicToastForm : Form
         _stop.AccessibleName = "Şarkı işlemini durdur";
         _toolTip.SetToolTip(_stop, "Akışı durdur ve o ana kadarki işlem geçmişini sakla.");
         _stop.Click += (_, _) => StopRequested?.Invoke();
-        ConfigureAction(_local, "Yerli", new Rectangle(180, 22, 48, 18));
-        ConfigureAction(_foreign, "Yabancı", new Rectangle(232, 22, 68, 18));
+        ConfigureAction(_local, "Yerli", new Rectangle(180, 9, 48, 26));
+        ConfigureAction(_foreign, "Yabancı", new Rectangle(232, 9, 68, 26));
         ConfigureAction(_search, "Elle ara", new Rectangle(222, 9, 78, 26));
         _local.Click += (_, _) => CategoryRequested?.Invoke(SongCategory.Local);
         _foreign.Click += (_, _) => CategoryRequested?.Invoke(SongCategory.Foreign);
@@ -97,6 +97,7 @@ internal sealed class MusicToastForm : Form
     private void ConfigureButton(Button button, string text, Rectangle bounds)
     {
         button.Bounds = bounds;
+        button.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         button.Text = text;
         button.Font = new Font("Segoe UI", 10);
         button.FlatStyle = FlatStyle.Flat;
@@ -148,8 +149,7 @@ internal sealed class MusicToastForm : Form
         var searchManually = job.Stage == MusicStage.NeedsReview && job.Category != SongCategory.Unknown;
         _local.Visible = _foreign.Visible = chooseCategory;
         _search.Visible = searchManually;
-        _title.Width = (int)Math.Round((searchManually ? 206 : 290) * DeviceDpi / 96F);
-        _status.Width = (int)Math.Round((chooseCategory ? 164 : searchManually ? 206 : 290) * DeviceDpi / 96F);
+        FitText();
         _needsAttention = job.Stage is MusicStage.NeedsReview or MusicStage.Failed or MusicStage.Uncertain or MusicStage.Interrupted;
         BackColor = _needsAttention ? Color.FromArgb(115, 30, 42) : Color.FromArgb(26, 31, 47);
         foreach (var button in Controls.OfType<Button>())
@@ -180,6 +180,32 @@ internal sealed class MusicToastForm : Form
             Opacity = 1;
         }
         Invalidate();
+    }
+
+    private void FitText()
+    {
+        var gap = (int)Math.Round(6 * DeviceDpi / 96F);
+        var textWidth = Math.Max(_title.GetPreferredSize(Size.Empty).Width,
+            _status.GetPreferredSize(Size.Empty).Width);
+        // Reserve the entire action group in every stage so toggling actions never shifts it.
+        var actionWidth = ClientSize.Width - _local.Left;
+        var desiredWidth = _title.Left + textWidth + gap + actionWidth;
+        var maxWidth = Screen.FromControl(this).WorkingArea.Width - 28;
+        // Grow only, keeping shorter status updates from moving the buttons back and forth.
+        ClientSize = new Size(Math.Min(Math.Max(ClientSize.Width, desiredWidth), maxWidth), ClientSize.Height);
+        _title.Width = _status.Width = Math.Max(1, _local.Left - gap - _title.Left);
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        FitText();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        FitText();
     }
 
     protected override void OnPaint(PaintEventArgs e)

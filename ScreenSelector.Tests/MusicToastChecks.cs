@@ -10,9 +10,64 @@ internal static class MusicToastChecks
 
     internal static void Run()
     {
+        CheckAdaptiveLayout();
         CheckLifetimeAndActions();
         CheckWorkflowControls();
         Console.WriteLine("PASS: toast fade timing, persistent red actions, category resume, background execution and stop history");
+    }
+
+    private static void CheckAdaptiveLayout()
+    {
+        using var toast = new MusicToastForm();
+        var job = new MusicJob { Song = new CapturedSong("DYSTINCT", "YAMA", "Test"), Stage = MusicStage.NeedsReview };
+        toast.UpdateJob(job);
+        toast.Show();
+        var buttons = toast.Controls.OfType<Button>().ToArray();
+        var positions = buttons.Select(button => (Right: toast.ClientSize.Width - button.Right,
+            Top: button.Top, Size: button.Size)).ToArray();
+        var labels = toast.Controls.OfType<Label>().ToArray();
+        var initialWidth = toast.Width;
+        var initialHeight = toast.Height;
+        var stop = Button(toast, "Şarkı işlemini durdur");
+        Require(buttons.All(button => button.Top == stop.Top && button.Height == stop.Height),
+            "Category actions are not aligned with the adjacent controls");
+        SavePreview(toast, "music-toast-aligned-preview.png");
+
+        job.Song = new CapturedSong("Uzun Sanatçı Adı ve Konuk Sanatçı", "Şarkının Uzun Adı (Özel Konser Kaydı)", "Test");
+        toast.UpdateJob(job);
+        Require(toast.Width > initialWidth && toast.Height == initialHeight,
+            "A long song title did not expand the popup horizontally");
+        Require(labels.All(label => label.Width >= label.GetPreferredSize(Size.Empty).Width),
+            "Song text was truncated despite available screen space");
+        Require(labels.All(label => buttons.Where(button => button.Visible)
+            .All(button => !label.Bounds.IntersectsWith(button.Bounds))), "Song text overlaps an action");
+        SavePreview(toast, "music-toast-long-title-preview.png");
+
+        var titleWidth = toast.Width;
+        job.Song = Song;
+        job.Stage = MusicStage.Failed;
+        job.Status = "Spotify bağlantısı kurulamadı. İnternet bağlantınızı ve hesap ayarlarını kontrol edip şarkıyı yeniden eklemeyi deneyin.";
+        toast.UpdateJob(job);
+        Require(toast.Width > titleWidth && labels.All(label => label.Width >= label.GetPreferredSize(Size.Empty).Width),
+            "A long status did not receive enough text space");
+        var expandedWidth = toast.Width;
+        job.Stage = MusicStage.NeedsReview;
+        foreach (var category in new[] { SongCategory.Unknown, SongCategory.Foreign, SongCategory.Unknown })
+        {
+            job.Category = category;
+            toast.UpdateJob(job);
+            Require(toast.Width == expandedWidth, "Shorter text or changing actions shrank the popup");
+            Require(buttons.Select(button => (Right: toast.ClientSize.Width - button.Right,
+                    Top: button.Top, Size: button.Size)).SequenceEqual(positions),
+                "Text changes moved or resized buttons within the action group");
+        }
+
+        job.Song = new CapturedSong("Sanatçı", new string('W', 1000), "Test");
+        toast.UpdateJob(job);
+        Require(toast.Width <= Screen.FromControl(toast).WorkingArea.Width - 28 &&
+            buttons.All(button => toast.ClientRectangle.Contains(button.Bounds)),
+            "Oversized text pushed the popup or its actions beyond the screen");
+        Console.WriteLine("PASS: aligned toast actions, adaptive title/status width and stable action spacing");
     }
 
     private static void CheckLifetimeAndActions()
