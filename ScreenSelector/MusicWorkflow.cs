@@ -31,11 +31,14 @@ public sealed class MusicJob
     public SpotifyTrack? SpotifyMatch { get; set; }
     public string PlaylistName { get; set; } = "";
     public MusicStage Stage { get; set; } = MusicStage.Capturing;
+    public MusicStage LastActiveStage { get; set; } = MusicStage.Capturing;
     public string Status { get; set; } = "Şarkı yakalanıyor…";
     public List<MusicLogEvent> Events { get; set; } = [];
-    [JsonIgnore] public bool CanCancel => Stage is MusicStage.Capturing or MusicStage.Classifying or
-        MusicStage.Captured or MusicStage.Searching or MusicStage.Found;
-    [JsonIgnore] public bool IsRunning => CanCancel || Stage == MusicStage.Adding;
+    [JsonIgnore] public bool StopRequested { get; set; }
+    [JsonIgnore] public bool IsRunning => Stage is MusicStage.Capturing or MusicStage.Classifying or
+        MusicStage.Captured or MusicStage.Searching or MusicStage.Found or MusicStage.Adding;
+    [JsonIgnore] public bool CanCancel => IsRunning && !StopRequested;
+    [JsonIgnore] public bool CanStop => !StopRequested && Stage is not (MusicStage.Added or MusicStage.AlreadyExists or MusicStage.Cancelled);
     [JsonIgnore] public string CategoryLabel => Category switch
     {
         SongCategory.Local => "Yerli", SongCategory.Foreign => "Yabancı", _ => "Belirsiz"
@@ -57,7 +60,7 @@ internal interface ISpotifyLibrary
     Task<SpotifyTrack?> FindAsync(CapturedSong song, CancellationToken cancellationToken);
     Task<SpotifyPlaylist> GetDestinationAsync(SongCategory category, CancellationToken cancellationToken);
     Task<bool> ContainsAsync(string playlistId, SpotifyTrack track, CancellationToken cancellationToken);
-    Task AddAsync(string playlistId, SpotifyTrack track);
+    Task AddAsync(string playlistId, SpotifyTrack track, CancellationToken cancellationToken);
 }
 
 internal sealed class MusicWorkflow(IMusicCapture capture, ISongClassifier classifier, ISpotifyLibrary spotify)
@@ -70,24 +73,61 @@ internal sealed class MusicWorkflow(IMusicCapture capture, ISongClassifier class
     internal void Update(MusicJob job, MusicStage stage, string message)
     {
         job.Stage = stage;
+        if (job.IsRunning) job.LastActiveStage = stage;
+        else if (stage == MusicStage.NeedsReview)
+            job.LastActiveStage = job.Category == SongCategory.Unknown ? MusicStage.Classifying : MusicStage.Searching;
         job.Status = message;
+        Record(job, message);
+    }
+
+    internal void Record(MusicJob job, string message)
+    {
         job.Events.Add(new MusicLogEvent(DateTimeOffset.Now, message));
         Changed?.Invoke(job);
     }
 
+    internal static string StageLabel(MusicStage stage) => stage switch
+    {
+        MusicStage.Capturing => "Şarkı yakalama",
+        MusicStage.Classifying => "Dil belirleme",
+        MusicStage.Captured => "Şarkı yakalandı",
+        MusicStage.Searching => "Spotify arama",
+        MusicStage.Found => "Spotify eşleşmesi / liste kontrolü",
+        MusicStage.Adding => "Listeye ekleme",
+        _ => stage.ToString()
+    };
+
+    internal void RequestStop(MusicJob job)
+    {
+        if (!job.CanStop) return;
+        job.StopRequested = true;
+        var message = $"{StageLabel(job.LastActiveStage)} aşamasında durdurma istendi.";
+        if (job.IsRunning)
+            Update(job, job.Stage, message + (job.Stage == MusicStage.Adding
+                ? " Gönderilmiş ekleme isteğinin sonucu günlüğe kaydedilecek." : " Akış durduruluyor…"));
+        else
+            Update(job, job.Stage == MusicStage.Uncertain ? MusicStage.Uncertain : MusicStage.Cancelled,
+                message + " Önceki durum: " + job.Status);
+    }
+
     internal async Task RunAsync(MusicJob job, CancellationToken cancellationToken)
     {
+        job.StopRequested = false;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (job.Song is null)
             {
                 Update(job, MusicStage.Capturing, "Şarkı yakalanıyor…");
+                cancellationToken.ThrowIfCancellationRequested();
                 job.Song = await capture.CaptureAsync(cancellationToken);
-                Update(job, MusicStage.Classifying, $"Şarkı bulundu: {job.Song.Artist} - {job.Song.Title}. Dil belirleniyor…");
+                cancellationToken.ThrowIfCancellationRequested();
             }
+            cancellationToken.ThrowIfCancellationRequested();
             if (job.Category == SongCategory.Unknown)
             {
+                Update(job, MusicStage.Classifying, $"Şarkı bulundu: {job.Song.Artist} - {job.Song.Title}. Dil belirleniyor…");
+                cancellationToken.ThrowIfCancellationRequested();
                 var classification = await classifier.ClassifyAsync(job.Song, cancellationToken);
                 job.Category = classification.Category;
                 job.CategoryReason = classification.Reason;
@@ -97,10 +137,11 @@ internal sealed class MusicWorkflow(IMusicCapture capture, ISongClassifier class
             await Task.Delay(StageDelay, cancellationToken);
             if (job.Category == SongCategory.Unknown)
             {
-                Update(job, MusicStage.NeedsReview, "Dil belirlenemedi. Günlükten Yerli veya Yabancı seçin; otomatik ekleme bekletildi.");
+                Update(job, MusicStage.NeedsReview, "Dil belirlenemedi. Bildirimden veya günlükten Yerli / Yabancı seçin; otomatik ekleme bekletildi.");
                 return;
             }
             Update(job, MusicStage.Searching, "Spotify'da aranıyor…");
+            cancellationToken.ThrowIfCancellationRequested();
             job.SpotifyMatch = await spotify.FindAsync(job.Song, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (job.SpotifyMatch is null)
@@ -125,14 +166,22 @@ internal sealed class MusicWorkflow(IMusicCapture capture, ISongClassifier class
                 // The POST is the commit boundary. Once sent, cancellation cannot honestly
                 // promise that Spotify did not add the track. Do not cancel or retry this POST.
                 Update(job, MusicStage.Adding, $"{destination.Name} listesine ekleniyor…");
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    await spotify.AddAsync(destination.Id, job.SpotifyMatch);
-                    Update(job, MusicStage.Added, $"Listeye Eklendi: {destination.Name}");
+                    await spotify.AddAsync(destination.Id, job.SpotifyMatch, cancellationToken);
+                    Update(job, MusicStage.Added, $"Listeye Eklendi: {destination.Name}" +
+                        (cancellationToken.IsCancellationRequested
+                            ? ". Durdurma istendiğinde ekleme isteği gönderilmişti; Spotify eklemeyi tamamladı." : ""));
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // AddAsync only honors this token before sending the write.
+                    throw;
                 }
                 catch (SpotifyRequestRejectedException ex)
                 {
-                    Update(job, MusicStage.Failed, ex.Message);
+                    Update(job, MusicStage.Failed, "Listeye ekleme aşamasında takıldı: " + ex.Message);
                 }
                 catch (Exception)
                 {
@@ -144,12 +193,13 @@ internal sealed class MusicWorkflow(IMusicCapture capture, ISongClassifier class
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            Update(job, MusicStage.Cancelled, "İşlem durduruldu. Spotify'a eklenmedi; şarkıyı elle bulabilirsiniz.");
+            Update(job, MusicStage.Cancelled, $"{StageLabel(job.LastActiveStage)} aşamasında durduruldu. Spotify'a eklenmedi; işlem geçmişi korundu.");
         }
         catch (Exception ex)
         {
-            Update(job, MusicStage.Failed, ex is OperationCanceledException
-                ? "İstek zaman aşımına uğradı. Günlükten yeniden deneyebilirsiniz." : ex.Message);
+            Update(job, MusicStage.Failed, $"{StageLabel(job.LastActiveStage)} aşamasında takıldı: " +
+                (ex is OperationCanceledException
+                    ? "İstek zaman aşımına uğradı. Günlükten yeniden deneyebilirsiniz." : ex.Message));
         }
     }
 }

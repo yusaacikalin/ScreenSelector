@@ -182,7 +182,7 @@ public partial class Form1
         _musicWorkflow.Changed += MusicJobChanged;
         try
         {
-            foreach (var job in _musicJournal.Load().Where(j => j.Song is not null).Reverse())
+            foreach (var job in _musicJournal.Load().Reverse())
             { _musicJobs[job.Id] = job; UpdateMusicRow(job); }
         }
         catch (Exception ex) { _journalStatus.Text = "Geçmiş günlük okunamadı: " + ex.Message; }
@@ -226,17 +226,33 @@ public partial class Form1
         job.SpotifyMatch = null;
         job.PlaylistName = "";
         job.Stage = job.Song is null ? MusicStage.Capturing : MusicStage.Captured;
+        job.LastActiveStage = job.Stage;
+        job.StopRequested = false;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_musicLifetime.Token);
         _musicOperations.Add(job.Id, cancellation);
         SetSpotifyConfigurationEnabled(false);
-        if (_musicToasts.Remove(job.Id, out var oldToast)) oldToast.Close();
-        var toast = new MusicToastForm();
-        toast.StopRequested += () => CancelMusic(job.Id);
-        toast.FormClosed += (_, _) => { _musicToasts.Remove(job.Id); ArrangeMusicToasts(); };
-        _musicToasts[job.Id] = toast;
+        if (!_musicToasts.TryGetValue(job.Id, out var toast) || toast.IsDisposed)
+        {
+            toast = new MusicToastForm();
+            toast.StopRequested += () => CancelMusic(job.Id);
+            toast.BackgroundRequested += () => _musicWorkflow.Record(job,
+                "Bildirim arka plana alındı. " + (job.IsRunning
+                    ? "Akış tamamlanana veya kullanıcı müdahalesi gerekene kadar sürdürülecek."
+                    : "Son durum günlükte korundu: " + job.Status));
+            toast.CategoryRequested += async category => await ChooseMusicJobCategoryAsync(job, category);
+            var currentToast = toast;
+            toast.SearchRequested += () =>
+            {
+                if (!SearchMusicJob(job)) return;
+                _musicWorkflow.Update(job, MusicStage.Added, "Elle eklendi");
+                currentToast.Close();
+            };
+            toast.FormClosed += (_, _) => { _musicToasts.Remove(job.Id); ArrangeMusicToasts(); };
+            _musicToasts[job.Id] = toast;
+        }
         toast.UpdateJob(job);
         ArrangeMusicToasts();
-        toast.Show();
+        if (!toast.Visible) toast.Show();
         try { await _musicWorkflow.RunAsync(job, cancellation.Token); }
         finally
         {
@@ -247,35 +263,37 @@ public partial class Form1
 
     private void CancelMusic(Guid id)
     {
-        if (_musicJobs.TryGetValue(id, out var job) && job.CanCancel && _musicOperations.TryGetValue(id, out var cancellation))
-            cancellation.Cancel();
+        if (!_musicJobs.TryGetValue(id, out var job) || !job.CanStop || _musicWorkflow is null) return;
+        _musicWorkflow.RequestStop(job);
+        if (_musicOperations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
     }
 
     private void ArrangeMusicToasts()
     {
         var area = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromControl(this).WorkingArea;
-        var bottom = area.Bottom - 14;
+        var top = area.Top + 14;
         foreach (var toast in _musicToasts.Values.Reverse().ToArray())
         {
             if (toast.IsDisposed) continue;
-            if (bottom - toast.Height < area.Top) { toast.Hide(); continue; }
-            toast.Location = new Point(area.Right - toast.Width - 14, bottom - toast.Height);
+            if (top + toast.Height > area.Bottom) { toast.Hide(); continue; }
+            toast.Location = new Point(area.Left + 14, top);
             if (toast.IsHandleCreated && !toast.Visible) toast.Show();
-            bottom -= toast.Height + 10;
+            top += toast.Height + 10;
         }
     }
 
     private void MusicJobChanged(MusicJob job)
     {
-        if (job.Song is not null)
+        // Do not add a transient capture placeholder, but retain every stopped or failed attempt.
+        var keepInHistory = job.Song is not null || !job.IsRunning;
+        if (keepInHistory)
         {
             try { _musicJournal.Append(job); }
             catch (Exception ex) { if (!IsDisposed) _journalStatus.Text = "Günlük dosyasına yazılamadı: " + ex.Message; }
         }
-        else if (!job.IsRunning) _musicJobs.Remove(job.Id);
         if (IsDisposed || _musicLifetime.IsCancellationRequested) return;
-        if (job.Song is not null) UpdateMusicRow(job);
-        else if (!job.IsRunning) _journalStatus.Text = job.Status;
+        if (keepInHistory) UpdateMusicRow(job);
+        if (job.Song is null && !job.IsRunning) _journalStatus.Text = job.Status;
         if (_musicToasts.TryGetValue(job.Id, out var toast) && !toast.IsDisposed) toast.UpdateJob(job);
     }
 
@@ -291,7 +309,7 @@ public partial class Form1
 
     private void UpdateMusicRow(MusicJob job)
     {
-        if (job.Song is null) return;
+        if (job.Song is null && job.IsRunning) return;
         var row = _musicGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is Guid id && id == job.Id);
         if (row is null)
         {
@@ -299,7 +317,7 @@ public partial class Form1
             row = _musicGrid.Rows[0];
             row.Tag = job.Id;
         }
-        row.SetValues(job.StartedAt.ToString("dd.MM HH:mm"), job.Song?.Artist ?? "—", job.Song?.Title ?? "Yakalanıyor…",
+        row.SetValues(job.StartedAt.ToString("dd.MM HH:mm"), job.Song?.Artist ?? "—", job.Song?.Title ?? "Şarkı belirlenemedi",
             job.CategoryLabel, job.SpotifyMatch is null ? (job.Stage == MusicStage.Searching ? "Aranıyor" : "—") : "Bulundu",
             job.Stage == MusicStage.Added && !string.IsNullOrWhiteSpace(job.PlaylistName)
                 ? "Eklendi · " + job.PlaylistName : job.Status);
@@ -351,15 +369,22 @@ public partial class Form1
         _journalStatus.Text = "Kayıt yerel geçmişten silindi. Spotify listesindeki şarkı korundu.";
     }
 
-    private async Task ChooseSongCategoryAsync(SongCategory category)
+    private Task ChooseSongCategoryAsync(SongCategory category) => ChooseMusicJobCategoryAsync(SelectedMusicJob(), category);
+
+    private async Task ChooseMusicJobCategoryAsync(MusicJob? job, SongCategory category)
     {
-        if (SelectedMusicJob() is not { Song: not null } job || _songClassifier is null) return;
-        if (job.IsRunning || job.Stage is MusicStage.Added or MusicStage.AlreadyExists)
+        if (job?.Song is null || _songClassifier is null || _musicWorkflow is null || category == SongCategory.Unknown) return;
+        if (job.IsRunning || _musicOperations.ContainsKey(job.Id) || job.Stage is MusicStage.Added or MusicStage.AlreadyExists)
         { _journalStatus.Text = "Tür seçimi, henüz eklenmemiş ve bekleyen kayıtlar için kullanılabilir."; return; }
-        try { _songClassifier.Remember(job.Song, category); }
-        catch (Exception ex) { _journalStatus.Text = "Tür tercihi kaydedilemedi: " + ex.Message; return; }
         job.Category = category;
         job.CategoryReason = "Kullanıcının bu şarkı için seçimi.";
+        try { _songClassifier.Remember(job.Song, category); }
+        catch (Exception ex)
+        {
+            _journalStatus.Text = "Tür tercihi sonraki kullanımlar için kaydedilemedi: " + ex.Message;
+            _musicWorkflow.Record(job, _journalStatus.Text);
+        }
+        _musicWorkflow.Record(job, $"Kullanıcı {job.CategoryLabel} seçti; ekleme akışı sürdürülüyor.");
         await RunMusicJobAsync(job);
     }
 
@@ -442,15 +467,20 @@ public partial class Form1
         _settings.SpotifyForeignPlaylistId = (_foreignPlaylist.SelectedItem as SpotifyPlaylist)?.Id ?? "";
         SaveSettings();
     }
-    private void OpenSpotifySearch(CapturedSong song)
+    private bool OpenSpotifySearch(CapturedSong song)
     {
         try
         {
             var uri = "spotify:search:" + Uri.EscapeDataString(song.Artist + " " + song.Title);
             Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
             _journalStatus.Text = $"Spotify'da arama açıldı: {song.Artist} — {song.Title}";
+            return true;
         }
-        catch { _journalStatus.Text = "Spotify masaüstü uygulaması açılamadı. Spotify'ın bilgisayarda kurulu olduğunu kontrol edin."; }
+        catch
+        {
+            _journalStatus.Text = "Spotify masaüstü uygulaması açılamadı. Spotify'ın bilgisayarda kurulu olduğunu kontrol edin.";
+            return false;
+        }
     }
 
     private void CloseMusicServices()

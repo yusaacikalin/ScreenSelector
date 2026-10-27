@@ -16,6 +16,7 @@ internal static class MusicChecks
         CheckMatching();
         await CheckWorkflowAsync();
         await CheckApiAsync();
+        await CheckCollaborativeSearchAsync();
         await CheckOAuthAsync();
         CheckJournal();
         Console.WriteLine("PASS: music matching, routing, cancellation, concurrent deduplication, API and OAuth checks");
@@ -59,6 +60,24 @@ internal static class MusicChecks
         Require(SongMatching.Choose(Song, [Track with { Title = Song.Title + " (Live)" }]) is null, "Live version was accepted");
         Require(SongMatching.Choose(Song, [Track, Track with { Id = "different", Isrc = "OTHER" }]) is null, "Ambiguous recordings were silently selected");
         Require(SongMatching.Choose(Song, [Track, Track with { Id = "album-release" }]) is not null, "Duplicate releases of one ISRC rejected");
+        var duet = new CapturedSong("Sibel Can ve Eypio", "KIYAMAM", "Chrome", 146.262743);
+        var duetTrack = new SpotifyTrack("duet", "KIYAMAM", ["Sibel Can", "Eypio"], 146.262, "TRANG2600057");
+        foreach (var artist in new[] { "Sibel Can ve Eypio", "Sibel Can & Eypio", "Sibel Can, Eypio", "Eypio feat. Sibel Can",
+                     "Sibel Can ft. Eypio", "Sibel Can featuring Eypio", "Sibel Can and Eypio" })
+            Require(SongMatching.Choose(duet with { Artist = artist }, [duetTrack]) == duetTrack,
+                $"Combined artist credits did not match the Spotify duet: {artist}");
+        Require(SongMatching.Choose(duet, [duetTrack with { Artists = ["Sibel Can"] }]) is null,
+            "Duet matched a solo recording");
+        Require(SongMatching.Choose(duet, [duetTrack with { Artists = ["Sibel Can", "Other artist"] }]) is null,
+            "Duet matched the wrong collaborator");
+        Require(SongMatching.Choose(duet, [duetTrack with { Title = "KIYAMAM (Live)" }]) is null &&
+            SongMatching.Choose(duet, [duetTrack with { DurationSeconds = 200 }]) is null,
+            "Collaborator matching bypassed version/duration checks");
+        Require(SongMatching.Choose(duet, [duetTrack, duetTrack with { Id = "other", Isrc = "OTHER" }]) is null,
+            "Different duet recordings were silently treated as one");
+        foreach (var band in new[] { "Florence and the Machine", "Earth, Wind & Fire" })
+            Require(SongMatching.Choose(Song with { Artist = band }, [Track with { Artists = [band] }]) is not null,
+                "A band name containing a conjunction was split instead of matching exactly");
         Require(SongLanguageService.FromLanguages(["tr", "tr"]) == SongCategory.Local, "Turkish routing failed");
         Require(SongLanguageService.FromLanguages(["en", "de"]) == SongCategory.Foreign, "Foreign routing failed");
         Require(SongLanguageService.FromLanguages(["tr", "en"]) == SongCategory.Unknown, "Mixed language guessed");
@@ -87,7 +106,7 @@ internal static class MusicChecks
         await Flow(otherApi).RunAsync(foreign, CancellationToken.None);
         Require(otherApi.LastCategory == SongCategory.Foreign, "Foreign song was sent to local list");
 
-        foreach (var stage in new[] { MusicStage.Capturing, MusicStage.Classifying, MusicStage.Captured, MusicStage.Searching, MusicStage.Found })
+        foreach (var stage in new[] { MusicStage.Capturing, MusicStage.Classifying, MusicStage.Captured, MusicStage.Searching, MusicStage.Found, MusicStage.Adding })
         {
             using var cancellation = new CancellationTokenSource();
             api = new FakeSpotify();
@@ -96,15 +115,17 @@ internal static class MusicChecks
             job = new MusicJob();
             await flow.RunAsync(job, cancellation.Token);
             Require(job.Stage == MusicStage.Cancelled && api.AddCalls == 0, $"Cancellation at {stage} added a track");
+            Require(job.LastActiveStage == stage && job.Status.Contains(MusicWorkflow.StageLabel(stage)),
+                "Cancellation lost the stage at which it stopped");
         }
         using (var cancellation = new CancellationTokenSource())
         {
-            api = new FakeSpotify();
+            api = new FakeSpotify { OnAdd = () => cancellation.Cancel() };
             flow = Flow(api);
-            flow.Changed += j => { if (j.Stage == MusicStage.Adding) cancellation.Cancel(); };
             job = new MusicJob();
             await flow.RunAsync(job, cancellation.Token);
-            Require(job.Stage == MusicStage.Added, "Committed write was falsely reported as cancelled");
+            Require(job.Stage == MusicStage.Added && api.AddCalls == 1 && job.Status.Contains("isteği gönderilmişti"),
+                "Committed write was falsely reported as cancelled or the stop request was omitted");
         }
         api = new FakeSpotify();
         flow = Flow(api);
@@ -176,6 +197,28 @@ internal static class MusicChecks
         Require(await library.ContainsAsync("local", Track, CancellationToken.None), "Playlist pagination failed");
         await library.AddAsync("local", Track);
         Require(requests.Count(r => r.StartsWith("POST")) == 1, "Write was repeated");
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var preparing = new SpotifyLibraryService((_, _) =>
+            {
+                cancellation.Cancel();
+                return Task.FromResult("test-token");
+            }, () => settings, client);
+            try { await preparing.AddAsync("local", Track, cancellation.Token); throw new Exception("Stopped preparation still sent a write"); }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            Require(requests.Count(r => r.StartsWith("POST")) == 1, "Stop during token preparation did not prevent the POST");
+        }
+        using (var cancellation = new CancellationTokenSource())
+        using (var timeoutClient = new HttpClient(new Handler(_ =>
+        {
+            cancellation.Cancel();
+            throw new TaskCanceledException("Simulated timeout after dispatch");
+        })))
+        {
+            var timedOut = new SpotifyLibraryService((_, _) => Task.FromResult("token"), () => settings, timeoutClient);
+            try { await timedOut.AddAsync("local", Track, cancellation.Token); throw new Exception("Timed-out write was accepted"); }
+            catch (HttpRequestException) { }
+        }
         var posts = 0;
         using var failureClient = new HttpClient(new Handler(_ =>
         { posts++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)); }));
@@ -183,6 +226,47 @@ internal static class MusicChecks
         try { await failing.AddAsync("local", Track); throw new Exception("POST 503 accepted"); }
         catch (HttpRequestException) { }
         Require(posts == 1, "POST was automatically retried");
+    }
+
+    private static async Task CheckCollaborativeSearchAsync()
+    {
+        var queries = new List<string>();
+        var primaryHasMatch = false;
+        var wrongCollaborator = false;
+        using var client = new HttpClient(new Handler(request =>
+        {
+            Require(request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/v1/search",
+                "Matching issued a request other than a read-only search");
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query.TrimStart('?').Split('&')
+                .Single(part => part.StartsWith("q="))[2..]);
+            queries.Add(query);
+            if (!primaryHasMatch && query == "track:KIYAMAM artist:Sibel Can ve Eypio")
+                return Task.FromResult(Json("""{"tracks":{"items":[]}}"""));
+            Require(query == (primaryHasMatch ? "track:KIYAMAM artist:Sibel Can ve Eypio" : "track:KIYAMAM artist:Sibel Can Eypio"),
+                "Fallback search lost the song title or an artist");
+            return Task.FromResult(Json(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                tracks = new { items = new[] { new
+                {
+                    id = "duet", name = "KIYAMAM", duration_ms = 146262, is_playable = true,
+                    artists = new[] { new { name = "Sibel Can" }, new { name = wrongCollaborator ? "Other artist" : "Eypio" } },
+                    external_ids = new { isrc = "TRANG2600057" }
+                } } }
+            })));
+        }));
+        var library = new SpotifyLibraryService((_, _) => Task.FromResult("token"), () => new AppSettings(), client);
+        var song = new CapturedSong("Sibel Can ve Eypio", "KIYAMAM", "Chrome", 146.262743);
+        Require((await library.FindAsync(song, CancellationToken.None))?.Id == "duet" && queries.Count == 2,
+            "An empty literal artist search was not recovered with the combined credits");
+        queries.Clear();
+        primaryHasMatch = true;
+        Require((await library.FindAsync(song, CancellationToken.None))?.Id == "duet" && queries.Count == 1,
+            "A reliable primary result triggered an unnecessary fallback search");
+        queries.Clear();
+        primaryHasMatch = false;
+        wrongCollaborator = true;
+        Require(await library.FindAsync(song, CancellationToken.None) is null && queries.Count == 2,
+            "Fallback search trusted the first result without validating all artists");
     }
 
     private static async Task CheckOAuthAsync()
@@ -248,7 +332,10 @@ internal static class MusicChecks
             emptyJob.Stage = MusicStage.Failed;
             emptyJob.Status = "Şu anda çalan bir şarkı bulunamadı.";
             change.Invoke(form, [emptyJob]);
-            Require(grid.Rows.Count == 0 && jobs.Count == 0 && !File.Exists(temporaryHistory), "Empty capture left a history entry");
+            Require(grid.Rows.Count == 1 && jobs.Count == 1 && new MusicJournal(temporaryHistory).Load().Single().Stage == MusicStage.Failed,
+                "Failed capture lost its history before identifying a song");
+            grid.Rows.Clear();
+            jobs.Remove(emptyJob.Id);
         }
         finally { File.Delete(temporaryHistory); }
         ((Label)typeof(Form1).GetField("_journalStatus", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!).Text =
@@ -299,7 +386,8 @@ internal static class MusicChecks
             bitmap.Save(Path.Combine(AppContext.BaseDirectory, "music-toast-preview.png"), ImageFormat.Png);
         }
         toast.Hide();
-        Require(toast.Controls.OfType<Button>().Count() == 2, "Toast must have independent dismiss/stop controls");
+        Require(toast.Controls.OfType<Button>().Any(b => b.AccessibleName == "Arka planda sürdür"),
+            "Toast must have an independent background control");
         Require(toast.Controls.OfType<Button>().Single(b => b.AccessibleName == "Şarkı işlemini durdur").Enabled == false,
             "Completed toast offers cancellation");
         using var runningToast = new MusicToastForm();
@@ -307,7 +395,7 @@ internal static class MusicChecks
         runningToast.StopRequested += () => stopEvents++;
         runningToast.UpdateJob(new MusicJob { Song = Song, Stage = MusicStage.Searching });
         runningToast.Show();
-        runningToast.Controls.OfType<Button>().Single(b => b.AccessibleName == "Bu şarkının bildirimlerini kapat").PerformClick();
+        runningToast.Controls.OfType<Button>().Single(b => b.AccessibleName == "Arka planda sürdür").PerformClick();
         Require(stopEvents == 0 && runningToast.IsDisposed, "Dismissing the notification also stopped the song");
         using var stopToast = new MusicToastForm();
         stopToast.StopRequested += () => stopEvents++;
@@ -316,6 +404,7 @@ internal static class MusicChecks
         stopToast.Controls.OfType<Button>().Single(b => b.AccessibleName == "Şarkı işlemini durdur").PerformClick();
         Require(stopEvents == 1, "Stop button did not request cancellation");
         stopToast.Hide();
+        MusicToastChecks.Run();
         Console.WriteLine("PASS: music menu and silent toast rendered for visual inspection");
     }
 
@@ -404,6 +493,7 @@ internal static class MusicChecks
         public SongCategory LastCategory;
         public SpotifyTrack? Match = Track;
         public Exception? AddFailure;
+        public Action? OnAdd;
         private bool _contains;
         public Task<SpotifyTrack?> FindAsync(CapturedSong song, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); SearchCalls++; return Task.FromResult(Match); }
@@ -411,8 +501,8 @@ internal static class MusicChecks
         { cancellationToken.ThrowIfCancellationRequested(); LastCategory = category; return Task.FromResult(new SpotifyPlaylist("list", category == SongCategory.Local ? "Yerli" : "Yabancı")); }
         public Task<bool> ContainsAsync(string playlistId, SpotifyTrack track, CancellationToken cancellationToken)
         { cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(_contains); }
-        public async Task AddAsync(string playlistId, SpotifyTrack track)
-        { AddCalls++; await Task.Delay(10); if (AddFailure is not null) throw AddFailure; _contains = true; }
+        public async Task AddAsync(string playlistId, SpotifyTrack track, CancellationToken cancellationToken)
+        { AddCalls++; OnAdd?.Invoke(); await Task.Delay(10); if (AddFailure is not null) throw AddFailure; _contains = true; }
     }
     private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {

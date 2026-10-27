@@ -179,9 +179,14 @@ public partial class Form1
         toolTip.SetToolTip(button, description);
     }
 
-    private void SearchMusicJob(MusicJob? job)
+    private bool SearchMusicJob(MusicJob? job)
     {
-        if (job?.Song is { } song) OpenSpotifySearch(song);
+        if (job?.Song is not { } song) return false;
+        var opened = OpenSpotifySearch(song);
+        _musicWorkflow?.Record(job, opened
+            ? "Kullanıcı Spotify'da elle aramayı açtı."
+            : _journalStatus.Text);
+        return opened;
     }
 }
 

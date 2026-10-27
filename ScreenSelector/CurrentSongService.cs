@@ -96,6 +96,21 @@ internal static class SongMatching
         @"\b(live|remix|remaster(ed)?|acoustic|instrumental|karaoke|cover|sped|slowed|radio edit|canlı|akustik)\b",
         RegexOptions.IgnoreCase);
 
+    internal static string[] SplitArtistCredits(string artist) => Regex.Split(artist,
+        @"\s*(?:[,;&+]|\b(?:ve|and|featuring|feat|ft)\b\.?)\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+        .Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part.Trim()).ToArray();
+
+    private static bool ArtistsMatch(string capturedArtist, string[] trackArtists)
+    {
+        var artist = Normalize(capturedArtist);
+        var credits = trackArtists.Select(Normalize).Where(name => name.Length > 0).Distinct().ToArray();
+        // Preserve exact band names (including names containing "and" or "&") and primary-artist metadata.
+        if (credits.Contains(artist) || string.Join(" ", credits) == artist) return true;
+        // A combined duet credit must account for every separately credited Spotify artist.
+        var capturedCredits = SplitArtistCredits(capturedArtist).Select(Normalize).ToHashSet();
+        return credits.Length > 1 && capturedCredits.SetEquals(credits);
+    }
+
     internal static SpotifyTrack? Choose(CapturedSong song, IEnumerable<SpotifyTrack> tracks)
     {
         var matches = tracks.Where(t => !string.IsNullOrWhiteSpace(t.Id)).DistinctBy(t => t.Id).ToArray();
@@ -106,10 +121,9 @@ internal static class SongMatching
             var exact = matches.FirstOrDefault(t => string.Equals(t.Isrc, song.Isrc, StringComparison.OrdinalIgnoreCase));
             if (exact is not null) return exact;
         }
-        var artist = Normalize(song.Artist);
         var title = Normalize(song.Title);
         var reliable = matches.Where(t => Normalize(t.Title) == title &&
-            (t.Artists.Any(a => Normalize(a) == artist) || Normalize(string.Join(" ", t.Artists)) == artist) &&
+            ArtistsMatch(song.Artist, t.Artists) &&
             (song.DurationSeconds is null || Math.Abs(t.DurationSeconds - song.DurationSeconds.Value) <= 12))
             .OrderBy(t => song.DurationSeconds is null ? 0 : Math.Abs(t.DurationSeconds - song.DurationSeconds.Value)).ToArray();
         if (reliable.Length == 0) return null;

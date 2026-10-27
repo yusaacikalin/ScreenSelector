@@ -52,7 +52,18 @@ internal sealed class SpotifyLibraryService : ISpotifyLibrary
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer",
                 await _getToken(ct, attempt == 1));
             if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-            var response = await _client.SendAsync(request, ct);
+            ct.ThrowIfCancellationRequested();
+            HttpResponseMessage response;
+            try
+            {
+                // Cancellation can stop token preparation, but cannot retract a dispatched playlist write.
+                response = await _client.SendAsync(request, method == HttpMethod.Get ? ct : CancellationToken.None);
+            }
+            catch (OperationCanceledException ex) when (method != HttpMethod.Get)
+            {
+                // A timeout after dispatch is an uncertain result, even if the user also pressed Stop.
+                throw new HttpRequestException("Spotify ekleme yanıtı alınamadı; sonuç belirsiz.", ex);
+            }
             // Only refresh/retry reads. Never blindly retry playlist writes.
             if (response.StatusCode == HttpStatusCode.Unauthorized && method == HttpMethod.Get && attempt == 0)
             {
@@ -134,11 +145,24 @@ internal sealed class SpotifyLibraryService : ISpotifyLibrary
     internal async Task<IReadOnlyList<SpotifyTrack>> FindCandidatesAsync(CapturedSong song, CancellationToken ct)
     {
         var query = song.Isrc is null ? $"track:{song.Title} artist:{song.Artist}" : "isrc:" + song.Isrc;
+        var tracks = await SearchTracksAsync(query, ct);
+        var artistCredits = SongMatching.SplitArtistCredits(song.Artist);
+        if (song.Isrc is null && artistCredits.Length > 1 && SongMatching.Choose(song, tracks) is null)
+        {
+            // Spotify stores collaborators separately; a literal "ve"/"feat." artist filter can return no results.
+            var combinedCredits = string.Join(" ", artistCredits);
+            var fallback = await SearchTracksAsync($"track:{song.Title} artist:{combinedCredits}", ct);
+            tracks = tracks.Concat(fallback).DistinctBy(track => track.Id).ToArray();
+        }
+        return tracks;
+    }
+
+    private async Task<SpotifyTrack[]> SearchTracksAsync(string query, CancellationToken ct)
+    {
         using var document = await ReadAsync("search?type=track&limit=10&q=" + Uri.EscapeDataString(query), ct);
-        var tracks = document.RootElement.GetProperty("tracks").GetProperty("items").EnumerateArray()
+        return document.RootElement.GetProperty("tracks").GetProperty("items").EnumerateArray()
             .Where(item => !item.TryGetProperty("is_playable", out var playable) || playable.ValueKind != JsonValueKind.False)
             .Select(ParseTrack).ToArray();
-        return tracks;
     }
 
     internal static SpotifyTrack ParseTrack(JsonElement item) => new(item.GetProperty("id").GetString()!,
@@ -165,10 +189,10 @@ internal sealed class SpotifyLibraryService : ISpotifyLibrary
         }
     }
 
-    public async Task AddAsync(string playlistId, SpotifyTrack track)
+    public async Task AddAsync(string playlistId, SpotifyTrack track, CancellationToken cancellationToken = default)
     {
         using var response = await SendAsync(HttpMethod.Post, "playlists/" + Uri.EscapeDataString(playlistId) + "/items",
-            JsonSerializer.Serialize(new { uris = new[] { track.Uri } }), CancellationToken.None);
+            JsonSerializer.Serialize(new { uris = new[] { track.Uri } }), cancellationToken);
         if (response.StatusCode != HttpStatusCode.Created)
             throw new HttpRequestException("Spotify ekleme sonucunu doğrulamadı.");
     }
